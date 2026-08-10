@@ -81,6 +81,7 @@ func (rm *rcloneManager) isRunning(mountID string) bool {
 func (rm *rcloneManager) persist() {
 	if err := rm.store.Save(rm.cfg); err != nil {
 		rm.logf("ERROR", "[설정] mounts.json 저장 실패: %v", err)
+		rm.revealWindow()
 		dialog.ShowError(err, rm.win)
 		return
 	}
@@ -97,4 +98,15 @@ func (rm *rcloneManager) saveWindowSize() {
 	rm.cfg.WindowWidth = size.Width
 	rm.cfg.WindowHeight = size.Height
 	rm.persist()
+}
+
+// revealWindow brings the main window to the front regardless of the
+// "시작 시 트레이로 최소화" setting or its current hidden/minimized
+// state. Call this right before showing any dialog that represents a
+// real problem (a failed mount, a save error, ...) — a dialog rendered
+// on a hidden window's canvas is itself invisible, so without this a
+// user running minimized-to-tray would never know anything went wrong.
+func (rm *rcloneManager) revealWindow() {
+	rm.win.Show()
+	rm.win.RequestFocus()
 }

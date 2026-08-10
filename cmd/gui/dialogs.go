@@ -157,6 +157,7 @@ func (rm *rcloneManager) confirmDeleteRemote(r engine.Remote) {
 // the user can see *why* a mount failed, instead of it just silently going
 // back to "해제됨". Also points at the log file for the full history.
 func (rm *rcloneManager) showMountFailureDialog(m engine.Mount, detail string) {
+	rm.revealWindow()
 	label := widget.NewLabel(mountFailureMessage(m, detail, rm.log.Path))
 	label.Wrapping = fyne.TextWrapWord
 	scroll := container.NewVScroll(label)

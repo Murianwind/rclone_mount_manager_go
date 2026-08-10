@@ -55,6 +55,7 @@ func main() {
 	cfg, err := rm.store.Load()
 	if err != nil {
 		rm.logf("ERROR", "[설정] mounts.json 로드 실패: %v", err)
+		rm.revealWindow()
 		dialog.ShowError(err, win)
 	}
 	rm.cfg = cfg

@@ -24,6 +24,7 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	if !ok {
 		rm.logf("ERROR", "[마운트] %s:%s 실패 — rclone.exe를 찾을 수 없음", m.Remote, m.RemotePath)
 		fyne.Do(func() {
+			rm.revealWindow()
 			dialog.ShowInformation("알림", "rclone.exe를 찾을 수 없습니다. 먼저 rclone 경로를 등록해 주세요.", rm.win)
 		})
 		return
@@ -36,7 +37,10 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	cmd.Stderr = &stderrBuf
 	if err := cmd.Start(); err != nil {
 		rm.logf("ERROR", "[마운트] %s:%s 프로세스 시작 실패: %v", m.Remote, m.RemotePath, err)
-		fyne.Do(func() { dialog.ShowError(err, rm.win) })
+		fyne.Do(func() {
+			rm.revealWindow()
+			dialog.ShowError(err, rm.win)
+		})
 		return
 	}
 	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)

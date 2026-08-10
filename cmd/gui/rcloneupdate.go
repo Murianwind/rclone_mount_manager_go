@@ -65,6 +65,7 @@ func (rm *rcloneManager) checkRcloneUpdate(manual bool) {
 
 		active := rm.activeMountsSnapshot()
 		fyne.Do(func() {
+			rm.revealWindow()
 			msg := fmt.Sprintf("rclone v%s → v%s로 업데이트할까요?", local, latest)
 			if len(active) > 0 {
 				msg += "\n\n현재 마운트 중인 드라이브가 있습니다 — 업데이트 전 모두 해제하고, 완료 후 자동으로 다시 마운트합니다."
@@ -134,6 +135,7 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 		if err != nil {
 			rm.logf("ERROR", "[rclone] 다운로드 실패: %v", err)
 			fyne.Do(func() {
+				rm.revealWindow()
 				dialog.ShowError(err, rm.win)
 				rm.refreshVersionLabel()
 			})
@@ -159,6 +161,7 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 			rm.logf("WARN", "[rclone] 실행 중 파일 잠김 — rclone_new.exe로 저장, 수동 교체 필요")
 			fyne.Do(func() {
 				rm.refreshVersionLabel()
+				rm.revealWindow()
 				dialog.ShowInformation("수동 교체 필요",
 					fmt.Sprintf("rclone.exe가 사용 중이라 자동 교체하지 못했습니다.\n%s 폴더의 rclone_new.exe를 rclone.exe로 직접 바꿔주세요.", destDir),
 					rm.win)

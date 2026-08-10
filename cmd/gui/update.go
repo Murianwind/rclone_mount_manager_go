@@ -52,6 +52,7 @@ func (rm *rcloneManager) checkForUpdate(manual bool) {
 		rm.logf("INFO", "[업데이트] v%s 다운로드 가능, 확인창 표시", rel.Version)
 
 		fyne.Do(func() {
+			rm.revealWindow()
 			dialog.ShowConfirm("업데이트 가능",
 				fmt.Sprintf("새 버전 v%s가 있습니다. 지금 업데이트할까요?\n(적용 후 앱이 자동으로 재시작됩니다)", rel.Version),
 				func(ok bool) {
@@ -88,7 +89,7 @@ func (rm *rcloneManager) performUpdate(assetURL string) {
 		newExe, err := engine.DownloadAppUpdate(nil, rm.appDir, assetURL)
 		if err != nil {
 			rm.logf("ERROR", "[업데이트] 다운로드/추출 실패: %v", err)
-			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			fyne.Do(func() { progress.Hide(); rm.revealWindow(); dialog.ShowError(err, rm.win) })
 			return
 		}
 		rm.logf("INFO", "[업데이트] 다운로드 완료: %s", newExe)
@@ -96,7 +97,7 @@ func (rm *rcloneManager) performUpdate(assetURL string) {
 		currentExe, err := os.Executable()
 		if err != nil {
 			rm.logf("ERROR", "[업데이트] 현재 실행 파일 경로 확인 실패: %v", err)
-			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			fyne.Do(func() { progress.Hide(); rm.revealWindow(); dialog.ShowError(err, rm.win) })
 			return
 		}
 
@@ -113,7 +114,7 @@ func (rm *rcloneManager) performUpdate(assetURL string) {
 
 		if err := engine.ApplyUpdate(currentExe, newExe); err != nil {
 			rm.logf("ERROR", "[업데이트] 교체/재시작 실패: %v", err)
-			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			fyne.Do(func() { progress.Hide(); rm.revealWindow(); dialog.ShowError(err, rm.win) })
 			return
 		}
 		rm.logf("INFO", "[업데이트] 적용 완료, 재시작함")
