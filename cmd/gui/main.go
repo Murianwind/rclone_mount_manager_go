@@ -3,14 +3,18 @@
 //
 // File layout (by concern, not by widget type):
 //
-//	main.go     - entrypoint, app/window bootstrap
-//	model.go    - rcloneManager state, small shared helpers (logf, persist, isRunning)
-//	layout.go   - top-level window layout (header, path row, options row)
-//	table.go    - the mount list table
-//	dialogs.go  - add/edit/delete/mount-failure dialogs
-//	mount.go    - mount/unmount process lifecycle, auto-mount, network monitor
-//	update.go   - self-update check/download/apply
-//	tray.go     - system tray icon + menu
+//	main.go         - entrypoint, app/window bootstrap
+//	model.go        - rcloneManager state, small shared helpers (logf, persist, isRunning)
+//	rows.go         - combined 원본/마운트 table row model
+//	layout.go       - top-level window layout (header, path row, options row)
+//	table.go        - the mount list table
+//	dialogs.go      - add/edit/delete/mount-failure dialogs
+//	confimport.go   - rclone.conf import dialog
+//	reorder.go      - 위/아래 list reordering
+//	mount.go        - mount/unmount process lifecycle, auto-mount, network monitor
+//	update.go       - app self-update check/download/apply
+//	rcloneupdate.go - rclone.exe install/update check/download/apply
+//	tray.go         - system tray icon + menu
 package main
 
 import (
@@ -60,6 +64,7 @@ func main() {
 	fyneApp.Lifecycle().SetOnStarted(func() {
 		rm.autoMountAll()
 		rm.checkForUpdate(false)
+		rm.checkRcloneUpdate(false)
 	})
 
 	if rm.cfg.StartMinimized {

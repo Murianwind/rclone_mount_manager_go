@@ -12,7 +12,11 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-func (rm *rcloneManager) showMountDialog(existing *engine.Mount) {
+// showMountDialog opens the add/edit form. existing == nil means "add a
+// new mount"; prefillRemote pre-fills the remote-name field for that case
+// (used by the "가져오기" action on a raw remote row) and is ignored when
+// existing != nil.
+func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote string) {
 	remoteEntry := widget.NewEntry()
 	pathEntry := widget.NewEntry()
 	driveEntry := widget.NewEntry()
@@ -29,6 +33,8 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount) {
 		cacheDirEntry.SetText(existing.CacheDir)
 		cacheModeSelect.SetSelected(existing.CacheMode)
 		extraFlagsEntry.SetText(existing.ExtraFlags)
+	} else if prefillRemote != "" {
+		remoteEntry.SetText(prefillRemote)
 	}
 
 	form := dialog.NewForm(
@@ -113,6 +119,23 @@ func (rm *rcloneManager) confirmDelete(m engine.Mount) {
 				}
 			}
 			rm.cfg.Mounts = kept
+			rm.persist()
+		}, rm.win)
+}
+
+func (rm *rcloneManager) confirmDeleteRemote(r engine.Remote) {
+	dialog.ShowConfirm("삭제", fmt.Sprintf("원본 '%s'을 목록에서 삭제할까요? (rclone.conf 자체는 건드리지 않습니다)", r.Name),
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			kept := rm.cfg.Remotes[:0]
+			for _, existing := range rm.cfg.Remotes {
+				if existing.Name != r.Name {
+					kept = append(kept, existing)
+				}
+			}
+			rm.cfg.Remotes = kept
 			rm.persist()
 		}, rm.win)
 }

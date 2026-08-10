@@ -23,8 +23,12 @@ func (rm *rcloneManager) build() {
 		rm.buildStartupOptionsRow(),
 	)
 
-	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil) })
-	bottom := container.NewBorder(nil, nil, nil, addBtn)
+	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil, "") })
+	upBtn := widget.NewButton("🔼", func() { rm.moveSelectedUp() })
+	downBtn := widget.NewButton("🔽", func() { rm.moveSelectedDown() })
+	importBtn := widget.NewButtonWithIcon("conf 가져오기", nil, func() { rm.showConfImportDialog() })
+	bottom := container.NewBorder(nil, nil, nil,
+		container.NewHBox(upBtn, downBtn, importBtn, addBtn))
 
 	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, rm.table))
 }
@@ -65,7 +69,7 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 		rm.refreshVersionLabel()
 	}
 
-	rm.rcVersionText = widget.NewLabel("rclone 확인 중...")
+	rm.rcVersionText = widget.NewButton("rclone 확인 중...", func() { rm.checkRcloneUpdate(true) })
 
 	return container.NewBorder(nil, nil, widget.NewLabel("rclone 경로:"),
 		container.NewHBox(browseBtn, rm.rcVersionText), rm.rcPathEntry)

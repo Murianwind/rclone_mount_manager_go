@@ -40,7 +40,11 @@ type rcloneManager struct {
 
 	table         *widget.Table
 	rcPathEntry   *widget.Entry
-	rcVersionText *widget.Label
+	rcVersionText *widget.Button // clickable — tapping checks for a newer rclone
+
+	selectedRow int // -1 = nothing selected; used by the 위/아래 이동 buttons
+
+	latestRcloneVersion string // cached from the last successful check; "" = unknown
 
 	activeMu sync.Mutex
 	active   map[string]*runningMount
@@ -48,11 +52,12 @@ type rcloneManager struct {
 
 func newRcloneManager(appDir string, log engine.RotatingLog, win fyne.Window) *rcloneManager {
 	return &rcloneManager{
-		appDir: appDir,
-		log:    log,
-		store:  engine.Store{Dir: appDir, Log: func(level, msg string) { _ = log.Write(level, msg) }},
-		win:    win,
-		active: map[string]*runningMount{},
+		appDir:      appDir,
+		log:         log,
+		store:       engine.Store{Dir: appDir, Log: func(level, msg string) { _ = log.Write(level, msg) }},
+		win:         win,
+		active:      map[string]*runningMount{},
+		selectedRow: -1,
 	}
 }
 
