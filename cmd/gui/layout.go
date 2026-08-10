@@ -24,9 +24,11 @@ func (rm *rcloneManager) build() {
 	spacer.SetMinSize(fyne.NewSize(0, 16))
 
 	// Table의 MinSize()는 컬럼 폭 합계를 반영하지 않아서, 이게 없으면
-	// 창을 표 내용보다 좁게 줄일 수 있어 오른쪽(액션) 컬럼이 잘려
-	// 보인다. 눈에는 안 보이지만 폭만 차지하는 사각형으로 창의 최소
-	// 크기 자체를 강제한다.
+	// 창을 표 내용보다 좁게 줄일 수 있어 액션 컬럼이 잘려 보인다. 눈에는
+	// 안 보이지만 폭만 차지하는 사각형으로 창의 최소 너비를 강제한다.
+	// (Border의 최소 너비는 각 구역 중 최댓값이라 top 안에 둬도 안전하다 —
+	// 반면 높이는 top의 자식들 높이가 그대로 더해지므로 최소 높이는
+	// 아래에서 표와 함께 별도로 강제한다.)
 	minWidthSpacer := canvas.NewRectangle(color.Transparent)
 	minWidthSpacer.SetMinSize(fyne.NewSize(tableContentWidth+20, 0))
 
@@ -38,6 +40,15 @@ func (rm *rcloneManager) build() {
 		minWidthSpacer,
 	)
 
+	// 표 영역 자체의 최소 높이를 강제한다 — 이게 없으면 세로로 줄일 때
+	// 표가 거의 안 보이는 높이까지 눌린다. 표와 같은 자리에(Stack으로)
+	// 겹쳐둬서 top의 높이에는 더해지지 않고 표 영역에만 반영되게 한다.
+	// 저해상도 화면도 부담 없이 맞도록 값은 넉넉하지 않게(행 몇 개 볼
+	// 정도로만) 잡았다.
+	minTableHeight := canvas.NewRectangle(color.Transparent)
+	minTableHeight.SetMinSize(fyne.NewSize(0, 200))
+	tableArea := container.NewStack(minTableHeight, rm.table)
+
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil, "") })
 	upBtn := widget.NewButton("🔼", func() { rm.moveSelectedUp() })
 	downBtn := widget.NewButton("🔽", func() { rm.moveSelectedDown() })
@@ -45,7 +56,7 @@ func (rm *rcloneManager) build() {
 	bottom := container.NewBorder(nil, nil, nil,
 		container.NewHBox(upBtn, downBtn, importBtn, addBtn))
 
-	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, rm.table))
+	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, tableArea))
 }
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
