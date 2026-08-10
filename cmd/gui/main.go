@@ -21,7 +21,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.2"
+const appVersion = "2.0.0"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // table column indices — keep in sync with buildTable's header labels.
@@ -45,6 +45,7 @@ type runningMount struct {
 
 func main() {
 	appDir := mustAppDir()
+	log := engine.RotatingLog{Path: filepath.Join(appDir, "RcloneManager.log"), MaxLines: 1000}
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
 	win := fyneApp.NewWindow("RcloneManager")
@@ -52,13 +53,16 @@ func main() {
 
 	rm := &rcloneManager{
 		appDir: appDir,
-		store:  engine.Store{Dir: appDir, Log: nil},
+		log:    log,
+		store:  engine.Store{Dir: appDir, Log: func(level, msg string) { _ = log.Write(level, msg) }},
 		win:    win,
 		active: map[string]*runningMount{},
 	}
+	rm.logf("INFO", "[시작] RcloneManager v%s 시작됨", appVersion)
 
 	cfg, err := rm.store.Load()
 	if err != nil {
+		rm.logf("ERROR", "[설정] mounts.json 로드 실패: %v", err)
 		dialog.ShowError(err, win)
 	}
 	rm.cfg = cfg
@@ -104,6 +108,7 @@ func mustAppDir() string {
 
 type rcloneManager struct {
 	appDir string
+	log    engine.RotatingLog
 	store  engine.Store
 	cfg    engine.Config
 	win    fyne.Window
@@ -114,6 +119,13 @@ type rcloneManager struct {
 
 	activeMu sync.Mutex
 	active   map[string]*runningMount
+}
+
+// logf writes one line to RcloneManager.log. Logging failures are
+// deliberately ignored here (never let a broken log stop the app) — same
+// intent as the Python version's write_log().
+func (rm *rcloneManager) logf(level, format string, args ...any) {
+	_ = rm.log.Write(level, fmt.Sprintf(format, args...))
 }
 
 func (rm *rcloneManager) build() {
@@ -441,10 +453,12 @@ func (rm *rcloneManager) confirmDelete(m engine.Mount) {
 
 func (rm *rcloneManager) persist() {
 	if err := rm.store.Save(rm.cfg); err != nil {
+		rm.logf("ERROR", "[설정] mounts.json 저장 실패: %v", err)
 		dialog.ShowError(err, rm.win)
 		return
 	}
 	rm.table.Refresh()
+	rm.refreshTrayMenu()
 }
 
 // ── mounting ──
@@ -525,6 +539,7 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 
 	exe, ok := rm.rcloneExePath()
 	if !ok {
+		rm.logf("ERROR", "[마운트] %s:%s 실패 — rclone.exe를 찾을 수 없음", m.Remote, m.RemotePath)
 		dialog.ShowInformation("알림", "rclone.exe를 찾을 수 없습니다. 먼저 rclone 경로를 등록해 주세요.", rm.win)
 		return
 	}
@@ -533,23 +548,31 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	cmd := exec.Command(args[0], args[1:]...)
 	engine.ConfigureBackgroundProcess(cmd) // hide console window, own process group
 	if err := cmd.Start(); err != nil {
+		rm.logf("ERROR", "[마운트] %s:%s 프로세스 시작 실패: %v", m.Remote, m.RemotePath, err)
 		dialog.ShowError(err, rm.win)
 		return
 	}
+	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)
 
 	done := make(chan struct{})
 	rm.activeMu.Lock()
 	rm.active[m.ID] = &runningMount{cmd: cmd, done: done}
 	rm.activeMu.Unlock()
 	rm.table.Refresh()
+	rm.refreshTrayMenu()
 
 	go func() {
-		_ = cmd.Wait() // process exits when unmounted (or on error)
+		err := cmd.Wait() // process exits when unmounted (or on error)
 		close(done)
 		rm.activeMu.Lock()
 		delete(rm.active, m.ID)
 		rm.activeMu.Unlock()
-		fyne.Do(func() { rm.table.Refresh() })
+		if err != nil {
+			rm.logf("WARN", "[마운트] %s:%s 프로세스 종료 (오류 종료: %v)", m.Remote, m.RemotePath, err)
+		} else {
+			rm.logf("INFO", "[마운트] %s:%s 프로세스 종료", m.Remote, m.RemotePath)
+		}
+		fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
 	}()
 }
 
@@ -568,6 +591,7 @@ func (rm *rcloneManager) unmount(mountID string) {
 
 	go func() {
 		if err := engine.SignalGracefulStop(running.cmd.Process.Pid); err != nil {
+			rm.logf("WARN", "[언마운트] 정상 종료 신호 실패(%v) → 강제 종료", err)
 			_ = running.cmd.Process.Kill()
 			return
 		}
@@ -575,6 +599,7 @@ func (rm *rcloneManager) unmount(mountID string) {
 		case <-running.done:
 			// exited cleanly on its own
 		case <-time.After(5 * time.Second):
+			rm.logf("WARN", "[언마운트] 5초 내 종료 안 됨 → 강제 종료")
 			_ = running.cmd.Process.Kill()
 		}
 	}()
@@ -610,14 +635,19 @@ func (rm *rcloneManager) refreshVersionLabel() {
 // mirrors the Python version's quiet periodic check.
 func (rm *rcloneManager) checkForUpdate(manual bool) {
 	go func() {
+		rm.logf("INFO", "[업데이트] 확인 시작 (현재 v%s)", appVersion)
 		rel, err := engine.FetchLatestRelease(nil, engine.AppReleaseAPI)
 		if err != nil {
+			rm.logf("ERROR", "[업데이트] 릴리스 조회 실패: %v (repo가 private면 인증 없이 실패합니다 — public인지 확인해 주세요)", err)
 			if manual {
 				fyne.Do(func() { dialog.ShowError(err, rm.win) })
 			}
 			return
 		}
+		rm.logf("INFO", "[업데이트] 최신 릴리스 v%s 확인됨 (asset %d개)", rel.Version, len(rel.Assets))
+
 		if engine.CompareVersions(appVersion, rel.Version) >= 0 {
+			rm.logf("INFO", "[업데이트] 이미 최신 버전")
 			if manual {
 				fyne.Do(func() { dialog.ShowInformation("업데이트 확인", "이미 최신 버전입니다.", rm.win) })
 			}
@@ -632,8 +662,16 @@ func (rm *rcloneManager) checkForUpdate(manual bool) {
 			}
 		}
 		if assetURL == "" {
+			rm.logf("ERROR", "[업데이트] v%s 릴리스에 RcloneManager.zip 자산이 없음", rel.Version)
+			if manual {
+				fyne.Do(func() {
+					dialog.ShowInformation("업데이트 확인",
+						fmt.Sprintf("v%s가 있지만 다운로드 파일(RcloneManager.zip)을 찾지 못했습니다.", rel.Version), rm.win)
+				})
+			}
 			return // release published without the expected asset — nothing to offer
 		}
+		rm.logf("INFO", "[업데이트] v%s 다운로드 가능, 확인창 표시", rel.Version)
 
 		fyne.Do(func() {
 			dialog.ShowConfirm("업데이트 가능",
@@ -641,6 +679,8 @@ func (rm *rcloneManager) checkForUpdate(manual bool) {
 				func(ok bool) {
 					if ok {
 						rm.performUpdate(assetURL)
+					} else {
+						rm.logf("INFO", "[업데이트] 사용자가 업데이트를 취소함")
 					}
 				}, rm.win)
 		})
@@ -650,6 +690,7 @@ func (rm *rcloneManager) checkForUpdate(manual bool) {
 // performUpdate downloads the release zip, swaps it into place, and
 // relaunches — then quits this (now-outdated) process.
 func (rm *rcloneManager) performUpdate(assetURL string) {
+	rm.logf("INFO", "[업데이트] 다운로드 시작: %s", assetURL)
 	progress := dialog.NewCustomWithoutButtons("업데이트 중",
 		widget.NewLabel("새 버전을 다운로드하고 있습니다..."), rm.win)
 	progress.Show()
@@ -657,18 +698,24 @@ func (rm *rcloneManager) performUpdate(assetURL string) {
 	go func() {
 		newExe, err := engine.DownloadAppUpdate(nil, rm.appDir, assetURL)
 		if err != nil {
+			rm.logf("ERROR", "[업데이트] 다운로드/추출 실패: %v", err)
 			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
 			return
 		}
+		rm.logf("INFO", "[업데이트] 다운로드 완료: %s", newExe)
+
 		currentExe, err := os.Executable()
 		if err != nil {
+			rm.logf("ERROR", "[업데이트] 현재 실행 파일 경로 확인 실패: %v", err)
 			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
 			return
 		}
 		if err := engine.ApplyUpdate(currentExe, newExe); err != nil {
+			rm.logf("ERROR", "[업데이트] 교체/재시작 실패: %v", err)
 			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
 			return
 		}
+		rm.logf("INFO", "[업데이트] 적용 완료, 재시작함")
 		fyne.Do(func() {
 			progress.Hide()
 			fyne.CurrentApp().Quit() // the new version is already launching
@@ -684,12 +731,66 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 		return // no system tray support on this platform/build
 	}
 	// SetSystemTrayWindow gives left-click = show/hide the window (like a
-	// normal Windows tray icon), right-click = the menu below. Fyne also
-	// auto-appends its own "Quit" item to any tray menu, so we only add
-	// "열기" here — adding our own quit item would just duplicate it.
+	// normal Windows tray icon), right-click = the menu below.
 	desk.SetSystemTrayWindow(rm.win)
-	menu := fyne.NewMenu("RcloneManager",
-		fyne.NewMenuItem("열기", func() { rm.win.Show() }),
-	)
-	desk.SetSystemTrayMenu(menu)
+	desk.SetSystemTrayMenu(rm.buildTrayMenu())
+}
+
+// buildTrayMenu mirrors the Python version's _build_tray_menu(): 열기,
+// then one toggleable item per configured mount showing ▶(멈춤)/■(실행중)
+// and its drive/remote, then quit. Fyne always appends its own "Quit" to
+// whatever menu we set, so — unlike the Python version, which added its
+// own "🚪 종료" — we deliberately don't add a second one here; that's what
+// caused the duplicate quit items reported earlier.
+func (rm *rcloneManager) buildTrayMenu() *fyne.Menu {
+	items := []*fyne.MenuItem{
+		fyne.NewMenuItem("🪟 열기", func() { rm.win.Show() }),
+		fyne.NewMenuItemSeparator(),
+	}
+
+	if len(rm.cfg.Mounts) == 0 {
+		empty := fyne.NewMenuItem("(등록된 마운트 없음)", nil)
+		empty.Disabled = true
+		items = append(items, empty, fyne.NewMenuItemSeparator())
+	} else {
+		for _, m := range rm.cfg.Mounts {
+			m := m // capture per-iteration copy for the closure below
+			running := rm.isRunning(m.ID)
+
+			label := strings.TrimSpace(m.Drive)
+			if label == "" {
+				label = m.Remote
+			}
+			rstr := strings.TrimRight(fmt.Sprintf("%s:%s", m.Remote, m.RemotePath), ":")
+			icon := "▶"
+			if running {
+				icon = "■"
+			}
+			display := fmt.Sprintf("%s  %s  (%s)", icon, label, rstr)
+
+			items = append(items, fyne.NewMenuItem(display, func() {
+				if rm.isRunning(m.ID) {
+					rm.unmount(m.ID)
+				} else {
+					rm.mount(m)
+				}
+			}))
+		}
+		items = append(items, fyne.NewMenuItemSeparator())
+	}
+
+	return fyne.NewMenu("RcloneManager", items...)
+}
+
+// refreshTrayMenu rebuilds and re-applies the tray menu — call this
+// whenever mount state or the mount list itself changes, since Fyne's
+// menu is a static snapshot rather than something that reflects live
+// state on its own (mirrors the Python version's `_tray.menu = ...;
+// update_menu()` after every _refresh_list()).
+func (rm *rcloneManager) refreshTrayMenu() {
+	desk, ok := fyne.CurrentApp().(desktop.App)
+	if !ok {
+		return
+	}
+	desk.SetSystemTrayMenu(rm.buildTrayMenu())
 }
