@@ -3,31 +3,45 @@ package main
 import "testing"
 
 func TestDisplayDrive(t *testing.T) {
-	if got := displayDrive(""); got != "(자동)" {
-		t.Errorf("displayDrive(\"\") = %q, want %q", got, "(자동)")
-	}
-	if got := displayDrive("  "); got != "(자동)" {
-		t.Errorf("displayDrive(\"  \") = %q, want %q", got, "(자동)")
-	}
-	if got := displayDrive("E:"); got != "E:" {
-		t.Errorf("displayDrive(\"E:\") = %q, want %q", got, "E:")
-	}
+	Scenario(t, "GIVEN 드라이브 문자가 비어있음 WHEN 표시 텍스트 결정 THEN '(자동)'으로 보여준다", func(t *testing.T) {
+		if got := displayDrive(""); got != "(자동)" {
+			t.Errorf("displayDrive(\"\") = %q, 기대값 %q", got, "(자동)")
+		}
+	})
+	Scenario(t, "GIVEN 드라이브 문자가 공백뿐임 WHEN 표시 텍스트 결정 THEN '(자동)'으로 보여준다", func(t *testing.T) {
+		if got := displayDrive("  "); got != "(자동)" {
+			t.Errorf("displayDrive(\"  \") = %q, 기대값 %q", got, "(자동)")
+		}
+	})
+	Scenario(t, "GIVEN 드라이브 문자가 지정돼 있음 WHEN 표시 텍스트 결정 THEN 그 값을 그대로 보여준다", func(t *testing.T) {
+		if got := displayDrive("E:"); got != "E:" {
+			t.Errorf("displayDrive(\"E:\") = %q, 기대값 %q", got, "E:")
+		}
+	})
 }
 
 func TestStatusLabel(t *testing.T) {
-	if got := statusLabel(true); got != "연결됨" {
-		t.Errorf("statusLabel(true) = %q, want %q", got, "연결됨")
-	}
-	if got := statusLabel(false); got != "해제됨" {
-		t.Errorf("statusLabel(false) = %q, want %q", got, "해제됨")
-	}
+	Scenario(t, "GIVEN 마운트가 실행 중임 WHEN 상태 라벨 결정 THEN '연결됨'을 보여준다", func(t *testing.T) {
+		if got := statusLabel(true); got != "연결됨" {
+			t.Errorf("statusLabel(true) = %q, 기대값 %q", got, "연결됨")
+		}
+	})
+	Scenario(t, "GIVEN 마운트가 실행 중이 아님 WHEN 상태 라벨 결정 THEN '해제됨'을 보여준다", func(t *testing.T) {
+		if got := statusLabel(false); got != "해제됨" {
+			t.Errorf("statusLabel(false) = %q, 기대값 %q", got, "해제됨")
+		}
+	})
 }
 
 func TestToggleLabel(t *testing.T) {
-	if got := toggleLabel(true); got != "해제" {
-		t.Errorf("toggleLabel(true) = %q, want %q", got, "해제")
-	}
-	if got := toggleLabel(false); got != "마운트" {
-		t.Errorf("toggleLabel(false) = %q, want %q", got, "마운트")
-	}
+	Scenario(t, "GIVEN 마운트가 실행 중임 WHEN 토글 버튼 라벨 결정 THEN '해제'를 보여준다", func(t *testing.T) {
+		if got := toggleLabel(true); got != "해제" {
+			t.Errorf("toggleLabel(true) = %q, 기대값 %q", got, "해제")
+		}
+	})
+	Scenario(t, "GIVEN 마운트가 실행 중이 아님 WHEN 토글 버튼 라벨 결정 THEN '마운트'를 보여준다", func(t *testing.T) {
+		if got := toggleLabel(false); got != "마운트" {
+			t.Errorf("toggleLabel(false) = %q, 기대값 %q", got, "마운트")
+		}
+	})
 }
