@@ -28,7 +28,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.6"
+const appVersion = "0.0.4"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // 컬럼 합(약 686px) + 창 여백/스크롤바를 감안해 기본 창 너비에 여유를 둔다 —
@@ -45,7 +45,9 @@ func main() {
 	}
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
+	fyneApp.SetIcon(appIcon)
 	win := fyneApp.NewWindow("RcloneManager")
+	win.SetIcon(appIcon)
 
 	rm := newRcloneManager(appDir, log, win)
 	rm.logf("INFO", "[시작] RcloneManager v%s 시작됨", appVersion)

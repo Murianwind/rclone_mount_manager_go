@@ -18,6 +18,7 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	// SetSystemTrayWindow gives left-click = show/hide the window (like a
 	// normal Windows tray icon), right-click = the menu below.
 	desk.SetSystemTrayWindow(rm.win)
+	desk.SetSystemTrayIcon(appIcon)
 	desk.SetSystemTrayMenu(rm.buildTrayMenu())
 }
 
