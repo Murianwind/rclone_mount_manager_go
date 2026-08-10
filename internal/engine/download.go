@@ -9,7 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// defaultDownloadClient has a bounded timeout — http.DefaultClient's
+// Timeout is 0 (unlimited), which meant a stalled connection would hang
+// this call forever with no error and nothing to log. 2 minutes is
+// generous for a few-MB exe/zip even on a slow connection.
+var defaultDownloadClient = &http.Client{Timeout: 2 * time.Minute}
 
 // Download status values mirror download_rclone()'s return convention
 // (True / "manual" / error string), just as Go constants + an error
@@ -39,7 +46,7 @@ var rcloneDownloadURLFn = func(version string) string {
 // manual swap (same behavior as the Python PermissionError fallback).
 func DownloadRclone(client *http.Client, destDir, version string) (status string, err error) {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultDownloadClient
 	}
 
 	data, err := httpGetBytes(client, rcloneDownloadURLFn(version))
@@ -93,7 +100,7 @@ func extractFileFromZip(data []byte, nameSuffix string) ([]byte, error) {
 // quit->install->relaunch updater, or a manual replace by the user).
 func DownloadAppRelease(client *http.Client, destDir, assetURL string) (status string, err error) {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultDownloadClient
 	}
 
 	suffix := ".zip"
@@ -113,6 +120,9 @@ func DownloadAppRelease(client *http.Client, destDir, assetURL string) (status s
 }
 
 func httpGetBytes(client *http.Client, url string) ([]byte, error) {
+	if client == nil {
+		client = defaultDownloadClient
+	}
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err

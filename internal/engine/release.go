@@ -7,7 +7,13 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
+
+// defaultAPIClient has a bounded timeout, unlike http.DefaultClient
+// (Timeout: 0 / unlimited) — a stalled GitHub API response would otherwise
+// hang the calling goroutine forever with no error.
+var defaultAPIClient = &http.Client{Timeout: 15 * time.Second}
 
 // RcloneReleaseAPI / AppReleaseAPI mirror the two GitHub "latest release"
 // endpoints polled by _check_versions_async(): rclone's wiserain fork, and
@@ -28,7 +34,7 @@ type githubRelease struct {
 // -> "1.68.2"). client may be nil to use http.DefaultClient.
 func FetchLatestReleaseTag(client *http.Client, apiURL string) (string, error) {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultAPIClient
 	}
 
 	resp, err := client.Get(apiURL)
@@ -79,7 +85,7 @@ type githubReleaseFull struct {
 // package (e.g. "RcloneManager.zip").
 func FetchLatestRelease(client *http.Client, apiURL string) (Release, error) {
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultAPIClient
 	}
 
 	resp, err := client.Get(apiURL)

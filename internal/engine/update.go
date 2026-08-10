@@ -16,6 +16,10 @@ import (
 // running Windows exe can't be overwritten in place. ApplyUpdate below
 // solves that with the rename trick instead.
 func DownloadAppUpdate(client *http.Client, destDir, assetURL string) (newExePath string, err error) {
+	if client == nil {
+		client = defaultDownloadClient
+	}
+
 	data, err := httpGetBytes(client, assetURL)
 	if err != nil {
 		return "", err

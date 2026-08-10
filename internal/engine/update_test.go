@@ -54,6 +54,21 @@ func buildFakeAppZip(t *testing.T, exeContent []byte) []byte {
 	return buf.Bytes()
 }
 
+func TestDownloadAppUpdate_NilClientDoesNotPanic(t *testing.T) {
+	zipData := buildFakeAppZip(t, []byte("new-exe-bytes"))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(zipData)
+	}))
+	defer srv.Close()
+
+	// This exact call (client == nil) used to panic — client.Get() was
+	// called on a nil *http.Client with no fallback, crashing the whole
+	// app mid-update with nothing logged after "다운로드 시작".
+	if _, err := DownloadAppUpdate(nil, t.TempDir(), srv.URL); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestDownloadAppUpdate_ExtractsExe(t *testing.T) {
 	zipData := buildFakeAppZip(t, []byte("new-exe-bytes"))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
