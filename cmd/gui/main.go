@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -18,9 +20,16 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-// runningMount tracks a live rclone mount process.
+const appVersion = "2.0.0"
+const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
+
+// runningMount tracks a live rclone mount process. done is closed by the
+// single goroutine that owns cmd.Wait() — unmount() waits on it (with a
+// timeout) instead of calling Wait() itself, since exec.Cmd.Wait() may
+// only be called once.
 type runningMount struct {
-	cmd *exec.Cmd
+	cmd  *exec.Cmd
+	done chan struct{}
 }
 
 func main() {
@@ -28,7 +37,7 @@ func main() {
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
 	win := fyneApp.NewWindow("RcloneManager")
-	win.Resize(fyne.NewSize(480, 420))
+	win.Resize(fyne.NewSize(720, 480))
 
 	rm := &rcloneManager{
 		appDir: appDir,
@@ -51,12 +60,16 @@ func main() {
 		win.Hide() // minimize to tray instead of quitting, matching the Python app
 	})
 
+	if rm.cfg.StartMinimized {
+		win.Hide()
+	}
+
 	win.ShowAndRun()
 }
 
 // mustAppDir returns the directory the running executable lives in — the
-// Go equivalent of the Python version's APP_DIR (Path(sys.executable).parent
-// when frozen). mounts.json, rclone.exe, and the log file all live here.
+// Go equivalent of the Python version's APP_DIR. mounts.json, rclone.exe,
+// and the log file all live here.
 func mustAppDir() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -72,6 +85,7 @@ type rcloneManager struct {
 	win    fyne.Window
 
 	list          *widget.List
+	rcPathEntry   *widget.Entry
 	rcVersionText *widget.Label
 
 	activeMu sync.Mutex
@@ -85,28 +99,108 @@ func (rm *rcloneManager) build() {
 		func(i widget.ListItemID, obj fyne.CanvasObject) { rm.updateMountRow(i, obj) },
 	)
 
+	top := container.NewVBox(
+		rm.buildHeaderRow(),
+		rm.buildRclonePathRow(),
+		rm.buildStartupOptionsRow(),
+		rm.buildTableHeaderRow(),
+	)
+
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil) })
+	bottom := container.NewBorder(nil, nil, nil, addBtn)
+
+	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, rm.list))
+}
+
+func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
+	title := widget.NewLabelWithStyle("RcloneManager", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	versionBadge := widget.NewLabel("v" + appVersion)
+	issueBtn := widget.NewButtonWithIcon("!", nil, func() {
+		if u, err := url.Parse(issueURL); err == nil {
+			_ = fyne.CurrentApp().OpenURL(u)
+		}
+	})
+	return container.NewBorder(nil, nil, container.NewHBox(title, versionBadge), issueBtn)
+}
+
+func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
+	rm.rcPathEntry = widget.NewEntry()
+	rm.rcPathEntry.SetText(rm.cfg.RclonePath)
+	rm.rcPathEntry.SetPlaceHolder("rclone.exe 경로")
+
+	browseBtn := widget.NewButtonWithIcon("", nil, func() {
+		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil || reader == nil {
+				return
+			}
+			defer reader.Close()
+			rm.rcPathEntry.SetText(reader.URI().Path())
+			rm.cfg.RclonePath = reader.URI().Path()
+			rm.persist()
+			rm.refreshVersionLabel()
+		}, rm.win)
+		fd.Show()
+	})
+
+	rm.rcPathEntry.OnSubmitted = func(s string) {
+		rm.cfg.RclonePath = strings.TrimSpace(s)
+		rm.persist()
+		rm.refreshVersionLabel()
+	}
 
 	rm.rcVersionText = widget.NewLabel("rclone 확인 중...")
 
-	bottom := container.NewBorder(nil, nil, rm.rcVersionText, addBtn)
-	rm.win.SetContent(container.NewBorder(nil, bottom, nil, nil, rm.list))
+	return container.NewBorder(nil, nil, widget.NewLabel("rclone 경로:"),
+		container.NewHBox(browseBtn, rm.rcVersionText), rm.rcPathEntry)
+}
+
+func (rm *rcloneManager) buildStartupOptionsRow() fyne.CanvasObject {
+	autoStart := widget.NewCheck("시작 시 자동 실행", func(checked bool) {
+		if err := engine.SetStartup(checked); err != nil {
+			dialog.ShowError(err, rm.win)
+		}
+	})
+	autoStart.SetChecked(engine.IsStartupEnabled())
+
+	autoMount := widget.NewCheck("시작 시 자동 마운트", func(checked bool) {
+		rm.cfg.AutoMount = checked
+		rm.persist()
+	})
+	autoMount.SetChecked(rm.cfg.AutoMount)
+
+	startMinimized := widget.NewCheck("시작 시 트레이로 최소화", func(checked bool) {
+		rm.cfg.StartMinimized = checked
+		rm.persist()
+	})
+	startMinimized.SetChecked(rm.cfg.StartMinimized)
+
+	return container.NewHBox(autoStart, autoMount, startMinimized)
+}
+
+func (rm *rcloneManager) buildTableHeaderRow() fyne.CanvasObject {
+	bold := func(s string) *widget.Label {
+		return widget.NewLabelWithStyle(s, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	}
+	return container.NewGridWithColumns(5,
+		bold("자동"), bold("드라이브"), bold("리모트(서브경로)"), bold("상태"), bold(""))
 }
 
 // ── mount list rows ──
 
 // newMountRow builds one (empty, template) list row. updateMountRow fills
-// it in by reaching into row.Objects — see the index comments there for
-// the layout this must match: label | [status, toggle, edit, delete].
+// it in by reaching into row.Objects — the columns here must match
+// buildTableHeaderRow: 자동 | 드라이브 | 리모트(서브경로) | 상태 | 버튼.
 func (rm *rcloneManager) newMountRow() fyne.CanvasObject {
-	label := widget.NewLabel("")
+	auto := widget.NewCheck("", nil)
+	drive := widget.NewLabel("")
+	remote := widget.NewLabel("")
 	status := widget.NewLabel("")
 	toggle := widget.NewButton("", nil)
-	edit := widget.NewButtonWithIcon("", nil, nil)
-	del := widget.NewButtonWithIcon("", nil, nil)
+	edit := widget.NewButton("편집", nil)
+	del := widget.NewButton("삭제", nil)
 
-	return container.NewBorder(nil, nil, nil,
-		container.NewHBox(status, toggle, edit, del), label)
+	return container.NewGridWithColumns(5,
+		auto, drive, remote, status, container.NewHBox(toggle, edit, del))
 }
 
 func (rm *rcloneManager) updateMountRow(i widget.ListItemID, obj fyne.CanvasObject) {
@@ -114,20 +208,29 @@ func (rm *rcloneManager) updateMountRow(i widget.ListItemID, obj fyne.CanvasObje
 		return
 	}
 	m := rm.cfg.Mounts[i]
-	row := obj.(*fyne.Container)
+	grid := obj.(*fyne.Container)
 
-	label := row.Objects[0].(*widget.Label)
-	right := row.Objects[1].(*fyne.Container)
-	status := right.Objects[0].(*widget.Label)
-	toggle := right.Objects[1].(*widget.Button)
-	editBtn := right.Objects[2].(*widget.Button)
-	delBtn := right.Objects[3].(*widget.Button)
+	auto := grid.Objects[0].(*widget.Check)
+	drive := grid.Objects[1].(*widget.Label)
+	remote := grid.Objects[2].(*widget.Label)
+	status := grid.Objects[3].(*widget.Label)
+	buttons := grid.Objects[4].(*fyne.Container)
+	toggle := buttons.Objects[0].(*widget.Button)
+	editBtn := buttons.Objects[1].(*widget.Button)
+	delBtn := buttons.Objects[2].(*widget.Button)
 
-	drive := strings.TrimSpace(m.Drive)
-	if drive == "" {
-		drive = "(자동)"
+	auto.SetChecked(m.AutoMount)
+	auto.OnChanged = func(checked bool) {
+		m.AutoMount = checked
+		rm.saveMount(m)
 	}
-	label.SetText(fmt.Sprintf("%s:%s → %s", m.Remote, m.RemotePath, drive))
+
+	driveText := strings.TrimSpace(m.Drive)
+	if driveText == "" {
+		driveText = "(자동)"
+	}
+	drive.SetText(driveText)
+	remote.SetText(fmt.Sprintf("%s:%s", m.Remote, m.RemotePath))
 
 	rm.activeMu.Lock()
 	_, running := rm.active[m.ID]
@@ -147,12 +250,8 @@ func (rm *rcloneManager) updateMountRow(i widget.ListItemID, obj fyne.CanvasObje
 		} else {
 			rm.mount(m)
 		}
-		rm.list.Refresh()
 	}
-	editBtn.SetIcon(nil)
-	editBtn.SetText("편집")
 	editBtn.OnTapped = func() { rm.showMountDialog(&m) }
-	delBtn.SetText("삭제")
 	delBtn.OnTapped = func() { rm.confirmDelete(m) }
 }
 
@@ -204,6 +303,7 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount) {
 				CacheDir:   strings.TrimSpace(cacheDirEntry.Text),
 				CacheMode:  cacheModeSelect.Selected,
 				ExtraFlags: engine.NormalizeFlags(extraFlagsEntry.Text),
+				AutoMount:  existing != nil && existing.AutoMount,
 			}
 			rm.saveMount(m)
 		},
@@ -293,24 +393,33 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 
 	args := engine.BuildCmd(exe, m)
 	cmd := exec.Command(args[0], args[1:]...)
+	engine.ConfigureBackgroundProcess(cmd) // hide console window, own process group
 	if err := cmd.Start(); err != nil {
 		dialog.ShowError(err, rm.win)
 		return
 	}
 
+	done := make(chan struct{})
 	rm.activeMu.Lock()
-	rm.active[m.ID] = &runningMount{cmd: cmd}
+	rm.active[m.ID] = &runningMount{cmd: cmd, done: done}
 	rm.activeMu.Unlock()
+	rm.list.Refresh()
 
 	go func() {
 		_ = cmd.Wait() // process exits when unmounted (or on error)
+		close(done)
 		rm.activeMu.Lock()
 		delete(rm.active, m.ID)
 		rm.activeMu.Unlock()
-		rm.list.Refresh()
+		fyne.Do(func() { rm.list.Refresh() })
 	}()
 }
 
+// unmount asks a running mount to stop gracefully (so rclone unmounts its
+// WinFsp filesystem cleanly instead of leaving the drive letter stuck),
+// falling back to a hard Kill() if it doesn't exit in time. Runs the wait
+// in a goroutine since it can block for a few seconds and this is called
+// from a button handler on the UI thread.
 func (rm *rcloneManager) unmount(mountID string) {
 	rm.activeMu.Lock()
 	running, ok := rm.active[mountID]
@@ -318,7 +427,19 @@ func (rm *rcloneManager) unmount(mountID string) {
 	if !ok || running.cmd.Process == nil {
 		return
 	}
-	_ = running.cmd.Process.Kill()
+
+	go func() {
+		if err := engine.SignalGracefulStop(running.cmd.Process.Pid); err != nil {
+			_ = running.cmd.Process.Kill()
+			return
+		}
+		select {
+		case <-running.done:
+			// exited cleanly on its own
+		case <-time.After(5 * time.Second):
+			_ = running.cmd.Process.Kill()
+		}
+	}()
 }
 
 // ── rclone version label ──
@@ -330,17 +451,16 @@ func (rm *rcloneManager) refreshVersionLabel() {
 		return
 	}
 	go func() {
-		out, err := exec.Command(exe, "version").CombinedOutput()
-		if err != nil {
-			rm.rcVersionText.SetText("v알 수 없음")
-			return
+		cmd := exec.Command(exe, "version")
+		engine.ConfigureBackgroundProcess(cmd)
+		out, err := cmd.CombinedOutput()
+		text := "v알 수 없음"
+		if err == nil {
+			if ver, found := engine.ParseLocalRcloneVersion(string(out)); found {
+				text = "rclone v" + ver
+			}
 		}
-		ver, found := engine.ParseLocalRcloneVersion(string(out))
-		if !found {
-			rm.rcVersionText.SetText("v알 수 없음")
-			return
-		}
-		rm.rcVersionText.SetText("rclone v" + ver)
+		fyne.Do(func() { rm.rcVersionText.SetText(text) })
 	}()
 }
 
@@ -351,6 +471,10 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	if !ok {
 		return // no system tray support on this platform/build
 	}
+	// Note: Fyne's tray API only supports a menu (shown on any click) —
+	// there's no separate "left-click restores the window" action like a
+	// typical Windows tray icon. "열기" is kept as the first/default item
+	// so restoring the window is always one click away.
 	menu := fyne.NewMenu("RcloneManager",
 		fyne.NewMenuItem("열기", func() { rm.win.Show() }),
 		fyne.NewMenuItem("종료", func() { fyneApp.Quit() }),
