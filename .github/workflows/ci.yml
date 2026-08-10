@@ -13,6 +13,9 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # tokenless Codecov upload via GitHub OIDC
     steps:
       - uses: actions/checkout@v4
 
@@ -145,7 +148,7 @@ jobs:
           files: ./coverage.out
           fail_ci_if_error: true
           verbose: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
       - name: Windows cross-compile check (engine only)
         run: GOOS=windows GOARCH=amd64 go build -o /tmp/RcloneManager.exe ./internal/...
