@@ -139,6 +139,7 @@ func (rm *rcloneManager) stopMountAndWait(mountID string) {
 // tray "종료" item used to) left rclone.exe processes orphaned and still
 // holding their drives, which broke every subsequent launch.
 func (rm *rcloneManager) quitGracefully() {
+	rm.saveWindowSize()
 	active := rm.activeMountsSnapshot()
 	if len(active) == 0 {
 		fyne.CurrentApp().Quit()

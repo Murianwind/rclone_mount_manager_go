@@ -19,12 +19,15 @@ import (
 func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote string) {
 	remoteEntry := widget.NewEntry()
 	pathEntry := widget.NewEntry()
+	wrapEntry(pathEntry) // 서브 디렉토리 경로는 길어질 수 있음
 	driveEntry := widget.NewEntry()
 	driveEntry.SetPlaceHolder("예: Z: (비우면 자동)")
 	cacheDirEntry := widget.NewEntry()
+	wrapEntry(cacheDirEntry) // 캐시 디렉토리 경로도 길어질 수 있음
 	cacheModeSelect := widget.NewSelect([]string{"", "off", "minimal", "writes", "full"}, nil)
 	extraFlagsEntry := widget.NewMultiLineEntry()
 	extraFlagsEntry.SetPlaceHolder("--flag=value;--flag2 value2")
+	extraFlagsEntry.Wrapping = fyne.TextWrapWord
 
 	if existing != nil {
 		remoteEntry.SetText(existing.Remote)
@@ -70,8 +73,18 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 		},
 		rm.win,
 	)
-	form.Resize(fyne.NewSize(420, 360))
+	form.Resize(fyne.NewSize(440, 420))
 	form.Show()
+}
+
+// wrapEntry turns a single-line Entry into one that word-wraps and scrolls
+// internally instead of clipping when its content is longer than the
+// field is wide — used for path-shaped fields (서브 디렉토리, 캐시
+// 디렉토리) where long values are common.
+func wrapEntry(e *widget.Entry) {
+	e.MultiLine = true
+	e.Wrapping = fyne.TextWrapWord
+	e.SetMinRowsVisible(1)
 }
 
 func mountDialogTitle(editing bool) string {

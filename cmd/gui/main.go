@@ -31,6 +31,11 @@ import (
 const appVersion = "0.0.4"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
+// 컬럼 합(약 686px) + 창 여백/스크롤바를 감안해 기본 창 너비에 여유를 둔다 —
+// 정확히 맞추면 창 테두리에 마지막 컬럼이 잘려 보인다.
+const defaultWindowWidth = 820
+const defaultWindowHeight = 520
+
 func main() {
 	appDir := mustAppDir()
 	log := engine.RotatingLog{Path: filepath.Join(appDir, "RcloneManager.log"), MaxLines: 1000}
@@ -41,7 +46,6 @@ func main() {
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
 	win := fyneApp.NewWindow("RcloneManager")
-	win.Resize(fyne.NewSize(760, 480))
 
 	rm := newRcloneManager(appDir, log, win)
 	rm.logf("INFO", "[시작] RcloneManager v%s 시작됨", appVersion)
@@ -53,13 +57,18 @@ func main() {
 	}
 	rm.cfg = cfg
 
+	win.Resize(fyne.NewSize(savedOr(cfg.WindowWidth, defaultWindowWidth), savedOr(cfg.WindowHeight, defaultWindowHeight)))
+
 	rm.build()
 	rm.setupTray(fyneApp)
 	rm.refreshVersionLabel()
 	rm.startNetworkMonitor()
 
 	win.SetCloseIntercept(func() {
-		fyne.Do(func() { win.Hide() }) // minimize to tray instead of quitting
+		fyne.Do(func() {
+			rm.saveWindowSize()
+			win.Hide() // minimize to tray instead of quitting
+		})
 	})
 
 	// Auto-mount and the update check both need the event loop actually
@@ -91,4 +100,14 @@ func mustAppDir() string {
 		return "."
 	}
 	return filepath.Dir(exe)
+}
+
+// savedOr returns saved if it's a usable positive size, else fallback.
+// Pulled out as a pure function so the "0 means unset" rule is testable
+// without a running Fyne window.
+func savedOr(saved, fallback float32) float32 {
+	if saved > 0 {
+		return saved
+	}
+	return fallback
 }

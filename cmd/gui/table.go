@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -26,7 +29,15 @@ const (
 func (rm *rcloneManager) buildTable() {
 	rm.table = widget.NewTable(
 		func() (int, int) { return len(rm.rows()), colCount },
-		func() fyne.CanvasObject { return container.NewStack() },
+		func() fyne.CanvasObject {
+			// 배경 사각형(선택 시 강조색) + 실제 내용 두 겹으로 구성 —
+			// Fyne 기본 선택 하이라이트는 버튼처럼 자체 배경이 있는
+			// 위젯에 가려져 안 보일 수 있어서, 직접 그려서 확실히
+			// 보이게 한다.
+			bg := canvas.NewRectangle(color.Transparent)
+			content := container.NewStack()
+			return container.NewStack(bg, content)
+		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			rm.updateTableCell(id, cell.(*fyne.Container))
 		},
@@ -40,37 +51,52 @@ func (rm *rcloneManager) buildTable() {
 		headers := [colCount]string{"구분", "자동", "드라이브", "리모트(서브경로)", "상태", ""}
 		o.(*widget.Label).SetText(headers[id.Col])
 	}
-	rm.table.SetColumnWidth(colKind, 90)
-	rm.table.SetColumnWidth(colAuto, 50)
-	rm.table.SetColumnWidth(colDrive, 80)
-	rm.table.SetColumnWidth(colRemote, 260)
-	rm.table.SetColumnWidth(colStatus, 80)
-	rm.table.SetColumnWidth(colActions, 200)
+	// 창 여백/스크롤바가 차지하는 폭을 감안해 컬럼 합이 기본 창 너비보다
+	// 조금 작게 잡았다 — 딱 맞춰두면 창 테두리에 마지막 컬럼이 잘려 보인다.
+	rm.table.SetColumnWidth(colKind, 80)
+	rm.table.SetColumnWidth(colAuto, 46)
+	rm.table.SetColumnWidth(colDrive, 70)
+	rm.table.SetColumnWidth(colRemote, 230)
+	rm.table.SetColumnWidth(colStatus, 70)
+	rm.table.SetColumnWidth(colActions, 190)
 
-	rm.table.OnSelected = func(id widget.TableCellID) { rm.selectedRow = id.Row }
+	rm.table.OnSelected = func(id widget.TableCellID) {
+		rm.selectedRow = id.Row
+		rm.table.Refresh() // 이전 선택 배경을 지우고 새 선택 배경을 그리기 위함
+	}
 }
 
 // updateTableCell fills in one cell. CreateCell can't know in advance
 // which column a recycled template will be asked to render, so each
 // helper (cellCheck/cellLabel/cellActionButtons) replaces the cell's
 // content if it isn't already the right widget type.
-func (rm *rcloneManager) updateTableCell(id widget.TableCellID, cell *fyne.Container) {
+func (rm *rcloneManager) updateTableCell(id widget.TableCellID, cellWrap *fyne.Container) {
+	bg := cellWrap.Objects[0].(*canvas.Rectangle)
+	content := cellWrap.Objects[1].(*fyne.Container)
+
 	rows := rm.rows()
+	if id.Row < len(rows) && id.Row == rm.selectedRow {
+		bg.FillColor = theme.Color(theme.ColorNameSelection)
+	} else {
+		bg.FillColor = color.Transparent
+	}
+	bg.Refresh()
+
 	if id.Row >= len(rows) {
 		return
 	}
 	row := rows[id.Row]
 
 	if id.Col == colKind {
-		rm.cellLabel(cell).SetText(kindLabel(row.kind))
+		rm.cellLabel(content).SetText(kindLabel(row.kind))
 		return
 	}
 
 	if row.kind == rowKindRemote {
-		rm.updateRemoteRowCell(id.Col, cell, row.remote)
+		rm.updateRemoteRowCell(id.Col, content, row.remote)
 		return
 	}
-	rm.updateMountRowCell(id.Col, cell, row.mount)
+	rm.updateMountRowCell(id.Col, content, row.mount)
 }
 
 func (rm *rcloneManager) updateRemoteRowCell(col int, cell *fyne.Container, r engine.Remote) {

@@ -21,6 +21,8 @@ type Config struct {
 	RclonePath     string   `json:"rclone_path"`
 	AutoMount      bool     `json:"auto_mount"`
 	StartMinimized bool     `json:"start_minimized"`
+	WindowWidth    float32  `json:"window_width"`
+	WindowHeight   float32  `json:"window_height"`
 }
 
 // DefaultConfig mirrors the Python fallback default returned by load_config().

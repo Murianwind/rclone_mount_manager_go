@@ -1,12 +1,14 @@
 package main
 
 import (
+	"image/color"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
@@ -18,10 +20,14 @@ import (
 func (rm *rcloneManager) build() {
 	rm.buildTable()
 
+	spacer := canvas.NewRectangle(color.Transparent)
+	spacer.SetMinSize(fyne.NewSize(0, 10))
+
 	top := container.NewVBox(
 		rm.buildHeaderRow(),
 		rm.buildRclonePathRow(),
 		rm.buildStartupOptionsRow(),
+		spacer,
 	)
 
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil, "") })
@@ -49,6 +55,9 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 	rm.rcPathEntry = widget.NewEntry()
 	rm.rcPathEntry.SetText(rm.cfg.RclonePath)
 	rm.rcPathEntry.SetPlaceHolder("rclone.exe 경로")
+	rm.rcPathEntry.MultiLine = true
+	rm.rcPathEntry.Wrapping = fyne.TextWrapWord
+	rm.rcPathEntry.SetMinRowsVisible(1) // 평소엔 한 줄만큼만 차지, 긴 경로는 줄바꿈+스크롤로 처리
 
 	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
 		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
@@ -61,6 +70,7 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 			rm.persist()
 			rm.refreshVersionLabel()
 		}, rm.win)
+		fd.Resize(fyne.NewSize(700, 440)) // 창보다 커지면 취소/열기 버튼이 창 밖으로 밀려남
 		fd.Show()
 	})
 

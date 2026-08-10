@@ -87,3 +87,14 @@ func (rm *rcloneManager) persist() {
 	rm.table.Refresh()
 	rm.refreshTrayMenu()
 }
+
+// saveWindowSize records the window's current size so it's restored on
+// the next launch. Called on hide-to-tray and before quitting — the app
+// never has a plain "on close" event otherwise, since the titlebar X is
+// intercepted to hide rather than close.
+func (rm *rcloneManager) saveWindowSize() {
+	size := rm.win.Canvas().Size()
+	rm.cfg.WindowWidth = size.Width
+	rm.cfg.WindowHeight = size.Height
+	rm.persist()
+}
