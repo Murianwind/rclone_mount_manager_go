@@ -73,7 +73,7 @@ jobs:
           git push origin HEAD:${{ github.event.release.target_commitish }}
 
       - name: Build with go build
-        run: go build -o RcloneManager.exe ./cmd/gui
+        run: go build -ldflags -H=windowsgui -o RcloneManager.exe ./cmd/gui
 
       - name: Create ZIP archive
         run: Compress-Archive -Path RcloneManager.exe -DestinationPath RcloneManager.zip

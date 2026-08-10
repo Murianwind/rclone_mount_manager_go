@@ -51,7 +51,7 @@ jobs:
           }
 
       - name: build RcloneManager.exe (GUI)
-        run: go build -o RcloneManager.exe ./cmd/gui
+        run: go build -ldflags -H=windowsgui -o RcloneManager.exe ./cmd/gui
 
       - uses: actions/upload-artifact@v4
         with:
