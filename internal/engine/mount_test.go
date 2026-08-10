@@ -97,3 +97,14 @@ func TestGetVolname_FallbackToRemote(t *testing.T) {
 		t.Errorf("GetVolname = %q, want nas", got)
 	}
 }
+
+func TestNewMountID_UniqueAndNonEmpty(t *testing.T) {
+	a := NewMountID()
+	b := NewMountID()
+	if a == "" || b == "" {
+		t.Fatalf("expected non-empty IDs, got %q and %q", a, b)
+	}
+	if a == b {
+		t.Errorf("expected two calls to produce different IDs")
+	}
+}

@@ -1,12 +1,15 @@
 package engine
 
 import (
+	"crypto/rand"
+	"fmt"
 	"regexp"
 	"strings"
 )
 
 // Mount mirrors the fields of a single mount entry in mounts.json.
 type Mount struct {
+	ID         string `json:"id"`
 	Remote     string `json:"remote"`
 	RemotePath string `json:"remote_path"`
 	Drive      string `json:"drive"`
@@ -14,6 +17,18 @@ type Mount struct {
 	CacheMode  string `json:"cache_mode"`
 	ExtraFlags string `json:"extra_flags"`
 	AutoMount  bool   `json:"auto_mount"`
+}
+
+// NewMountID generates a new random v4-UUID-shaped identifier for a mount
+// entry, mirroring the Python version's use of uuid.uuid4() as each
+// mount's "id". Used to target a specific entry for edit/delete/mount
+// operations regardless of remote name changes.
+func NewMountID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
 var volnameFlagRe = regexp.MustCompile(`^--volname=(.+)$`)
