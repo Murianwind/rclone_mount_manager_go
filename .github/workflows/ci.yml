@@ -20,11 +20,23 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: go vet (engine only — cmd/gui needs cgo, validated on windows-latest)
+      - name: install Fyne build deps (Linux headers, cmd/gui only builds/tests here — not distributed)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev \
+            libxinerama-dev libxi-dev libxxf86vm-dev libwayland-dev libxkbcommon-dev
+
+      - name: go vet (engine)
         run: go vet ./internal/...
 
-      - name: go test (with coverage)
+      - name: go vet (gui — pure-logic helpers only; actual Windows build is validated on windows-latest)
+        run: go vet ./cmd/gui/...
+
+      - name: go test (engine, with coverage)
         run: go test ./internal/... -v -coverprofile=coverage.out
+
+      - name: go test (gui pure-logic helpers)
+        run: go test ./cmd/gui/... -v
 
       - name: coverage summary
         run: go tool cover -func=coverage.out
