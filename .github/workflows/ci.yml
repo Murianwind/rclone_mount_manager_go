@@ -32,19 +32,119 @@ jobs:
       - name: go vet (gui — pure-logic helpers only; actual Windows build is validated on windows-latest)
         run: go vet ./cmd/gui/...
 
-      - name: go test (engine, with coverage)
-        run: go test ./internal/... -v -coverprofile=coverage.out
+      - name: Run go test with coverage
+        run: |
+          set +e
+          go test -v ./internal/... -coverprofile=coverage.out 2>&1 | tee engine-test-output.txt
+          ENGINE_EXIT=${PIPESTATUS[0]}
+          go test -v ./cmd/gui/... 2>&1 | tee gui-test-output.txt
+          GUI_EXIT=${PIPESTATUS[0]}
+          cat engine-test-output.txt gui-test-output.txt > go-test-output.txt
 
-      - name: go test (gui pure-logic helpers)
-        run: go test ./cmd/gui/... -v
+          if [ "$ENGINE_EXIT" != "0" ] || [ "$GUI_EXIT" != "0" ]; then
+            echo "TEST_EXIT=1" >> $GITHUB_ENV
+            exit 1
+          fi
+          echo "TEST_EXIT=0" >> $GITHUB_ENV
 
-      - name: coverage summary
-        run: go tool cover -func=coverage.out
+      - name: Publish Test Summary
+        if: always()
+        run: |
+          PASS_COUNT=$(grep -cE "^\s*--- PASS:" go-test-output.txt || true)
+          FAIL_COUNT=$(grep -cE "^\s*--- FAIL:" go-test-output.txt || true)
 
-      - name: upload coverage to Codecov
+          # ── 헤더 + 요약 ──────────────────────────────────────────────────
+          if [ "${TEST_EXIT:-0}" = "0" ]; then
+            echo "### ✅ Go 테스트 결과: 전체 통과" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Go 테스트 결과: 실패 있음" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PASS ${PASS_COUNT}건 / FAIL ${FAIL_COUNT}건**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # ── 실행된 테스트 전체 목록 (접기) ──────────────────────────────
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>📋 실행된 테스트 전체 목록 (클릭하여 펼치기)</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          grep -E "^\s*--- (PASS|FAIL):" go-test-output.txt \
+            | sed -E 's/^\s*--- PASS: /✓  /' \
+            | sed -E 's/^\s*--- FAIL: /✗  ← FAILED  /' \
+            >> $GITHUB_STEP_SUMMARY || echo "(없음)" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # ── 실패 상세 ────────────────────────────────────────────────────
+          if [ "$FAIL_COUNT" -gt "0" ]; then
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "### ❌ 실패 상세" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            awk '
+              /^=== RUN/ { last_run = NR }
+              { lines[NR] = $0 }
+              /^\s*--- FAIL:/ {
+                for (i = last_run; i <= NR; i++) print lines[i]
+                print ""
+              }
+            ' go-test-output.txt >> $GITHUB_STEP_SUMMARY || true
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate Coverage Report
+        if: always()
+        run: |
+          echo "### 📊 구문 커버리지 상세 (Statement Coverage)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Go 표준 커버리지 툴은 구문(statement) 커버리지만 제공합니다 — Python coverage.py의 분기(branch) 커버리지에 대응하는 기능은 없습니다." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 파일 경로 | 실행 가능 구문 | 실행 안 됨 | 구문 커버리지(%) |" >> $GITHUB_STEP_SUMMARY
+          echo "|:---|---:|---:|---:|" >> $GITHUB_STEP_SUMMARY
+
+          awk '
+            NR>1 {
+              n = split($0, parts, " ")
+              split(parts[1], fp, ":")
+              file = fp[1]
+              stmts = parts[2]
+              count = parts[3]
+              total[file] += stmts
+              if (count+0 > 0) covered[file] += stmts
+            }
+            END {
+              for (f in total) {
+                miss = total[f] - covered[f]
+                pct = (total[f] > 0) ? (covered[f] / total[f] * 100) : 0
+                printf "%s|%d|%d|%.1f\n", f, total[f], miss, pct
+              }
+            }
+          ' coverage.out | sort | while IFS='|' read -r file stmts miss pct; do
+            echo "| $file | $stmts | $miss | **${pct}%** |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details>" >> $GITHUB_STEP_SUMMARY
+          echo "<summary>🔍 함수별 상세 커버리지 (클릭하여 펼치기)</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📈 최종 커버리지 요약" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out | tail -1 >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.out
+          fail_ci_if_error: true
+          verbose: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Windows cross-compile check (engine only)
