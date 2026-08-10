@@ -53,6 +53,62 @@ func FetchLatestReleaseTag(client *http.Client, apiURL string) (string, error) {
 	return strings.TrimPrefix(rel.TagName, "v"), nil
 }
 
+// ReleaseAsset is one downloadable file attached to a GitHub release.
+type ReleaseAsset struct {
+	Name        string
+	DownloadURL string
+}
+
+// Release is the subset of a GitHub "latest release" response needed to
+// check for and download an app update: the version, and its assets.
+type Release struct {
+	Version string
+	Assets  []ReleaseAsset
+}
+
+type githubReleaseFull struct {
+	TagName string `json:"tag_name"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+// FetchLatestRelease is like FetchLatestReleaseTag but also returns the
+// release's downloadable assets, needed to locate the app's own update
+// package (e.g. "RcloneManager.zip").
+func FetchLatestRelease(client *http.Client, apiURL string) (Release, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	resp, err := client.Get(apiURL)
+	if err != nil {
+		return Release{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return Release{}, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, apiURL)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Release{}, err
+	}
+
+	var full githubReleaseFull
+	if err := json.Unmarshal(body, &full); err != nil {
+		return Release{}, err
+	}
+
+	rel := Release{Version: strings.TrimPrefix(full.TagName, "v")}
+	for _, a := range full.Assets {
+		rel.Assets = append(rel.Assets, ReleaseAsset{Name: a.Name, DownloadURL: a.BrowserDownloadURL})
+	}
+	return rel, nil
+}
+
 var rcloneVersionOutputRe = regexp.MustCompile(`rclone v([\d.\-]+)`)
 
 // ParseLocalRcloneVersion extracts the version string from `rclone

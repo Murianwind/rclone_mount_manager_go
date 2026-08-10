@@ -64,12 +64,16 @@ func DownloadRclone(client *http.Client, destDir, version string) (status string
 }
 
 func extractRcloneExeFromZip(data []byte) ([]byte, error) {
+	return extractFileFromZip(data, "rclone.exe")
+}
+
+func extractFileFromZip(data []byte, nameSuffix string) ([]byte, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range zr.File {
-		if strings.HasSuffix(f.Name, "rclone.exe") {
+		if strings.HasSuffix(f.Name, nameSuffix) {
 			rc, err := f.Open()
 			if err != nil {
 				return nil, err
@@ -78,7 +82,7 @@ func extractRcloneExeFromZip(data []byte) ([]byte, error) {
 			return io.ReadAll(rc)
 		}
 	}
-	return nil, fmt.Errorf("rclone.exe not found in downloaded archive")
+	return nil, fmt.Errorf("%s not found in downloaded archive", nameSuffix)
 }
 
 // DownloadAppRelease downloads an app-update release asset into destDir

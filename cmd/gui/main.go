@@ -75,6 +75,7 @@ func main() {
 	// rather than called directly here.
 	fyneApp.Lifecycle().SetOnStarted(func() {
 		rm.autoMountAll()
+		rm.checkForUpdate(false)
 	})
 
 	if rm.cfg.StartMinimized {
@@ -130,7 +131,7 @@ func (rm *rcloneManager) build() {
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
 	title := widget.NewLabelWithStyle("RcloneManager", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	versionBadge := widget.NewLabel("v" + appVersion)
+	versionBadge := widget.NewButton("v"+appVersion, func() { rm.checkForUpdate(true) })
 	issueBtn := widget.NewButtonWithIcon("!", nil, func() {
 		if u, err := url.Parse(issueURL); err == nil {
 			_ = fyne.CurrentApp().OpenURL(u)
@@ -536,6 +537,80 @@ func (rm *rcloneManager) refreshVersionLabel() {
 			}
 		}
 		fyne.Do(func() { rm.rcVersionText.SetText(text) })
+	}()
+}
+
+// ── self-update ──
+
+// checkForUpdate looks up the latest GitHub release and, if it's newer
+// than appVersion, offers to install it. When manual is false (the
+// silent startup check), nothing is shown unless an update is found —
+// mirrors the Python version's quiet periodic check.
+func (rm *rcloneManager) checkForUpdate(manual bool) {
+	go func() {
+		rel, err := engine.FetchLatestRelease(nil, engine.AppReleaseAPI)
+		if err != nil {
+			if manual {
+				fyne.Do(func() { dialog.ShowError(err, rm.win) })
+			}
+			return
+		}
+		if engine.CompareVersions(appVersion, rel.Version) >= 0 {
+			if manual {
+				fyne.Do(func() { dialog.ShowInformation("업데이트 확인", "이미 최신 버전입니다.", rm.win) })
+			}
+			return
+		}
+
+		var assetURL string
+		for _, a := range rel.Assets {
+			if a.Name == "RcloneManager.zip" {
+				assetURL = a.DownloadURL
+				break
+			}
+		}
+		if assetURL == "" {
+			return // release published without the expected asset — nothing to offer
+		}
+
+		fyne.Do(func() {
+			dialog.ShowConfirm("업데이트 가능",
+				fmt.Sprintf("새 버전 v%s가 있습니다. 지금 업데이트할까요?\n(적용 후 앱이 자동으로 재시작됩니다)", rel.Version),
+				func(ok bool) {
+					if ok {
+						rm.performUpdate(assetURL)
+					}
+				}, rm.win)
+		})
+	}()
+}
+
+// performUpdate downloads the release zip, swaps it into place, and
+// relaunches — then quits this (now-outdated) process.
+func (rm *rcloneManager) performUpdate(assetURL string) {
+	progress := dialog.NewCustomWithoutButtons("업데이트 중",
+		widget.NewLabel("새 버전을 다운로드하고 있습니다..."), rm.win)
+	progress.Show()
+
+	go func() {
+		newExe, err := engine.DownloadAppUpdate(nil, rm.appDir, assetURL)
+		if err != nil {
+			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			return
+		}
+		currentExe, err := os.Executable()
+		if err != nil {
+			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			return
+		}
+		if err := engine.ApplyUpdate(currentExe, newExe); err != nil {
+			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
+			return
+		}
+		fyne.Do(func() {
+			progress.Hide()
+			fyne.CurrentApp().Quit() // the new version is already launching
+		})
 	}()
 }
 
