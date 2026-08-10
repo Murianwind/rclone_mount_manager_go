@@ -110,22 +110,26 @@ func (rm *rcloneManager) activeMountsSnapshot() []engine.Mount {
 	return active
 }
 
-// installOrUpdateRclone unmounts remountAfter (if any), downloads version,
-// installs it, updates the configured rclone path, and remounts whatever
-// was unmounted. Mirrors the Python version's _do_rc_down().
+// installOrUpdateRclone unmounts remountAfter (if any) and waits for it to
+// actually finish — otherwise rclone.exe may still be locked by the very
+// process being stopped — then downloads version, installs it, updates
+// the configured rclone path, and remounts. Mirrors the Python version's
+// _do_rc_down().
 func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []engine.Mount) {
 	rm.logf("INFO", "[rclone] v%s 설치/업데이트 시작", version)
-	for _, m := range remountAfter {
-		rm.unmount(m.ID)
-	}
 
 	destDir := rm.appDir
 	if p := strings.TrimSpace(rm.cfg.RclonePath); p != "" {
 		destDir = filepath.Dir(p)
 	}
-	rm.rcVersionText.SetText("다운로드 중...")
 
 	go func() {
+		if len(remountAfter) > 0 {
+			fyne.Do(func() { rm.rcVersionText.SetText("마운트 해제 중...") })
+			rm.unmountAllAndWait()
+		}
+		fyne.Do(func() { rm.rcVersionText.SetText("다운로드 중...") })
+
 		status, err := engine.DownloadRclone(nil, destDir, version)
 		if err != nil {
 			rm.logf("ERROR", "[rclone] 다운로드 실패: %v", err)

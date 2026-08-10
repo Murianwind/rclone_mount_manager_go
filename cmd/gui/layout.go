@@ -9,6 +9,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -49,7 +50,7 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 	rm.rcPathEntry.SetText(rm.cfg.RclonePath)
 	rm.rcPathEntry.SetPlaceHolder("rclone.exe 경로")
 
-	browseBtn := widget.NewButtonWithIcon("", nil, func() {
+	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
 		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
 			if err != nil || reader == nil {
 				return

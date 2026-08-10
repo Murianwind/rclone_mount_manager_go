@@ -87,6 +87,28 @@ func TestDownloadAppUpdate(t *testing.T) {
 	})
 }
 
+func TestCleanupPreviousExe(t *testing.T) {
+	Scenario(t, "GIVEN 이전 업데이트가 남긴 .old 백업 파일이 있음 WHEN 정리 실행 THEN 그 파일을 삭제한다", func(t *testing.T) {
+		dir := t.TempDir()
+		currentExe := filepath.Join(dir, "RcloneManager.exe")
+		oldFile := currentExe + ".old"
+		givenOldExeAt(t, oldFile, "leftover")
+
+		CleanupPreviousExe(currentExe)
+
+		if _, err := os.Stat(oldFile); err == nil {
+			t.Errorf(".old 파일이 삭제됐어야 함")
+		}
+	})
+
+	// 부정 케이스: 정리할 .old 파일이 애초에 없는(정상적인 최초 실행) 상황.
+	Scenario(t, "GIVEN .old 파일이 애초에 없음 WHEN 정리 실행 THEN panic 없이 조용히 넘어간다 (부정 케이스)", func(t *testing.T) {
+		dir := t.TempDir()
+		currentExe := filepath.Join(dir, "RcloneManager.exe")
+		CleanupPreviousExe(currentExe) // 존재하지 않아도 오류 없이 그냥 지나가야 함
+	})
+}
+
 func TestApplyUpdate(t *testing.T) {
 	Scenario(t, "GIVEN 실행 중인 구버전 exe와 다운로드된 신버전 exe WHEN 업데이트 적용 THEN 구버전은 .old로 보존되고 신버전이 그 자리를 대체하며 재실행된다", func(t *testing.T) {
 		dir := t.TempDir()

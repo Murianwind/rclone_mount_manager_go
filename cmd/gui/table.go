@@ -80,9 +80,10 @@ func (rm *rcloneManager) updateRemoteRowCell(col int, cell *fyne.Container, r en
 	case colRemote:
 		rm.cellLabel(cell).SetText(remoteDisplayText(r))
 	case colActions:
-		importBtn, _, delBtn := rm.cellActionButtons(cell)
+		importBtn, middleBtn, delBtn := rm.cellActionButtons(cell)
 		importBtn.SetText("가져오기")
 		importBtn.OnTapped = func() { rm.showMountDialog(nil, r.Name) }
+		middleBtn.Hide() // 원본 행에는 편집 개념이 없어서 중간 슬롯을 안 씀
 		delBtn.SetText("삭제")
 		delBtn.OnTapped = func() { rm.confirmDeleteRemote(r) }
 	}
@@ -114,6 +115,7 @@ func (rm *rcloneManager) updateMountRowCell(col int, cell *fyne.Container, m eng
 				rm.mount(m)
 			}
 		}
+		editBtn.Show()
 		editBtn.SetText("편집")
 		editBtn.OnTapped = func() { rm.showMountDialog(&m, "") }
 		delBtn.SetText("삭제")

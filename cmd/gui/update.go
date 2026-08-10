@@ -99,6 +99,18 @@ func (rm *rcloneManager) performUpdate(assetURL string) {
 			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })
 			return
 		}
+
+		if active := rm.activeMountsSnapshot(); len(active) > 0 {
+			rm.logf("INFO", "[업데이트] 재시작 전 마운트 %d개 해제", len(active))
+			fyne.Do(func() {
+				progress.Hide()
+				progress = dialog.NewCustomWithoutButtons("업데이트 중",
+					widget.NewLabel("마운트 해제 중..."), rm.win)
+				progress.Show()
+			})
+			rm.unmountAllAndWait()
+		}
+
 		if err := engine.ApplyUpdate(currentExe, newExe); err != nil {
 			rm.logf("ERROR", "[업데이트] 교체/재시작 실패: %v", err)
 			fyne.Do(func() { progress.Hide(); dialog.ShowError(err, rm.win) })

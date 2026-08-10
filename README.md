@@ -1,35 +1,72 @@
-# rclone-manager-go — Phase 1 (engine only)
+# RcloneManager
 
-Go 포팅 1단계: GUI/OS 의존성 없는 순수 로직만 옮긴 상태입니다.
-`internal/engine` 패키지에 Python `rclone_manager.py`의 다음 함수들을
-동일한 동작으로 이식했습니다.
+Windows용 rclone 마운트 관리 트레이 앱. [Python/Tkinter 버전](https://github.com/Murianwind/rclone_mount_manager)을 Go + Fyne으로 다시 만든 프로젝트입니다.
 
-| Python                          | Go                              |
-|----------------------------------|----------------------------------|
-| `normalize_flags`                | `engine.NormalizeFlags`          |
-| `_get_volname`                   | `engine.GetVolname`              |
-| `build_cmd`                      | `engine.BuildCmd`                |
-| `_ver_tuple`                     | `engine.VerTuple` / `CompareVersions` |
-| `load_config` / `save_config`    | `engine.Store.Load` / `.Save`    |
-| `is_internet_available`          | `engine.IsInternetAvailable`     |
+[![CI](https://github.com/Murianwind/rclone_mount_manager_go/actions/workflows/ci.yml/badge.svg)](https://github.com/Murianwind/rclone_mount_manager_go/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Murianwind/rclone_mount_manager_go/graph/badge.svg)](https://codecov.io/gh/Murianwind/rclone_mount_manager_go)
+[![Go Version](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)](go.mod)
+[![Latest Release](https://img.shields.io/github/v/release/Murianwind/rclone_mount_manager_go?include_prereleases)](https://github.com/Murianwind/rclone_mount_manager_go/releases)
 
-기존 Python 테스트(`test_scenario_02~07d`, `60~68`, `71~75`)에 대응하는
-Go 테스트를 작성했고, 로컬에서 `go test ./... -cover` 결과 **24개 전부
-통과, 커버리지 90.7%**, `GOOS=windows go build`도 정상 확인했습니다.
+## 주요 기능
 
-## 아직 안 옮긴 것 (Phase 2/3)
+- rclone 리모트를 드라이브 문자로 마운트/언마운트 (그레이스풀 종료 → WinFsp 마운트포인트가 깨끗하게 해제됨)
+- rclone.conf에서 원본 리모트 가져오기 → 바로 마운트로 등록
+- 마운트/원본 목록 순서 변경, 시작 시 자동 마운트, 시작프로그램 등록
+- 네트워크 단절 시 마운트된 드라이브 자동 해제, 재연결 시 자동 마운트 항목 재마운트
+- 마운트 실패 시 rclone 오류 메시지를 그대로 보여주는 상세 오류창
+- 앱 자체 자동 업데이트, rclone.exe 자체 설치/업데이트 (둘 다 GitHub Release 기반)
+- 트레이 아이콘에서 마운트 목록 확인 및 개별 마운트/해제
+- 앱 종료 시 활성 마운트를 모두 안전하게 해제한 뒤 종료 (드라이브가 고아 프로세스로 남지 않음)
 
-- **GUI**: Tkinter 대체할 Go 프레임워크 선택 필요 (Fyne / Walk(win32 네이티브) / 트레이만 Go + 별도 웹 설정 화면 등). 이건 완전히 다른 논의라 의도적으로 미룸.
-- **rclone 다운로드/버전 체크** (`download_rclone`, GitHub Releases 조회): 엔진에 포함 가능하지만 실제 네트워크 I/O라 우선순위 낮춤.
-- **앱 자체 업데이터** (`download_app_release`)
-- **Windows 시작프로그램 등록** (`is_startup_enabled` / `set_startup`, `winreg` 기반): Go에서는 `golang.org/x/sys/windows/registry` 사용 가능, Windows 빌드 태그 필요.
-- **트레이 메뉴 / 네트워크 단절 자동 언마운트 모니터**
-- **로그 rotate** (`write_log`): 로직 자체는 간단해서 원하면 바로 추가 가능.
+## 요구 사항
 
-## 실행
+- Windows 10/11
+- [rclone](https://rclone.org/) 실행 파일 (앱에서 자체적으로 다운로드/업데이트 가능)
+- [WinFsp](https://winfsp.dev/) — rclone 마운트에 필요
+
+## 다운로드
+
+[Releases](https://github.com/Murianwind/rclone_mount_manager_go/releases)에서 최신 `RcloneManager.zip`을 받아 압축을 풀고 `RcloneManager.exe`를 실행하세요.
+
+## 개발
 
 ```
-go vet ./...
-go test ./... -v -cover
-GOOS=windows GOARCH=amd64 go build ./...
+go build -ldflags -H=windowsgui -o RcloneManager.exe ./cmd/gui
 ```
+
+`-H=windowsgui`를 빼면 콘솔 창이 함께 뜹니다(디버깅 시에는 유용할 수 있습니다).
+
+### 테스트
+
+```
+go test ./internal/... -v -cover   # 엔진 로직 (커버리지 대상)
+go test ./cmd/gui/... -v           # GUI의 순수 로직 헬퍼
+```
+
+모든 테스트는 `GIVEN/WHEN/THEN` 시나리오 + 키워드 주도 방식으로 작성돼 있어, `-v` 출력 자체가 동작 명세 역할을 합니다.
+
+## 프로젝트 구조
+
+```
+internal/engine/   순수 로직 (설정 파일 I/O, 마운트 커맨드 조립, 버전 비교/파싱,
+                    rclone.conf 파싱, 다운로드/업데이트, Windows 시작프로그램 등록)
+                    — OS/GUI 의존성이 없어 어떤 플랫폼에서도 빌드·테스트 가능
+
+cmd/gui/           Fyne 기반 Windows 데스크톱 UI. 관심사별로 파일이 나뉘어 있습니다:
+  main.go            진입점
+  model.go           앱 상태, 공용 헬퍼
+  rows.go            원본/마운트 통합 테이블 행 모델
+  layout.go          창 레이아웃
+  table.go           마운트 목록 표
+  dialogs.go         추가/편집/삭제/오류 다이얼로그
+  confimport.go      rclone.conf 가져오기
+  reorder.go         목록 순서 변경
+  mount.go           마운트/언마운트 프로세스 관리, 자동 마운트, 네트워크 모니터
+  update.go          앱 자체 업데이트
+  rcloneupdate.go    rclone.exe 자체 업데이트
+  tray.go            트레이 아이콘/메뉴
+```
+
+## 라이선스
+
+라이선스 파일이 아직 없습니다.

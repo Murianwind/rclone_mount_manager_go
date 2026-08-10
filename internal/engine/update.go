@@ -43,6 +43,13 @@ var launchFn = func(exePath string) error {
 	return cmd.Start()
 }
 
+// CleanupPreviousExe removes the .old backup ApplyUpdate leaves behind
+// after a successful update. Safe to call unconditionally on every
+// startup — a missing .old file is simply ignored, not an error.
+func CleanupPreviousExe(currentExe string) {
+	_ = os.Remove(currentExe + ".old")
+}
+
 // ApplyUpdate swaps newExePath into place as currentExe and relaunches it.
 // Windows allows renaming (but not overwriting) a running executable, so:
 //  1. currentExe -> currentExe+".old" (frees up the original name)

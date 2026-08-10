@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -90,12 +91,24 @@ func shouldReportMountFailure(exitErr error, stoppedByUs bool) bool {
 	return exitErr != nil && !stoppedByUs
 }
 
-// unmount asks a running mount to stop gracefully (so rclone unmounts its
-// WinFsp filesystem cleanly instead of leaving the drive letter stuck),
-// falling back to a hard Kill() if it doesn't exit in time. Runs in a
-// goroutine since it can block for a few seconds and may be called from a
-// UI callback.
+// unmount asks a running mount to stop, without blocking the caller (safe
+// to call from a UI button handler). See stopMountAndWait for the actual
+// stop logic — this just fires it off in a goroutine.
 func (rm *rcloneManager) unmount(mountID string) {
+	go rm.stopMountAndWait(mountID)
+}
+
+// stopMountAndWait gracefully stops a running mount (so rclone unmounts
+// its WinFsp filesystem cleanly instead of leaving the drive letter
+// stuck), falling back to a hard Kill() if it doesn't exit in time, and
+// blocks until it's actually gone.
+//
+// This blocking form exists specifically for app shutdown: quitting
+// without waiting here left rclone.exe running as an orphaned process
+// still holding the drive, which is why every next launch failed with
+// "mountpoint path already exists" — nothing had ever waited for the
+// unmount to actually finish before the app exited.
+func (rm *rcloneManager) stopMountAndWait(mountID string) {
 	rm.activeMu.Lock()
 	running, ok := rm.active[mountID]
 	if ok {
@@ -106,19 +119,35 @@ func (rm *rcloneManager) unmount(mountID string) {
 		return
 	}
 
+	if err := engine.SignalGracefulStop(running.cmd.Process.Pid); err != nil {
+		rm.logf("WARN", "[언마운트] 정상 종료 신호 실패(%v) → 강제 종료", err)
+		_ = running.cmd.Process.Kill()
+		return
+	}
+	select {
+	case <-running.done:
+		// exited cleanly on its own
+	case <-time.After(5 * time.Second):
+		rm.logf("WARN", "[언마운트] 5초 내 종료 안 됨 → 강제 종료")
+		_ = running.cmd.Process.Kill()
+	}
+}
+
+// quitGracefully unmounts everything currently active and waits for it to
+// finish before actually quitting the app. This is the only place that
+// should ever call fyne.CurrentApp().Quit() — quitting directly (as the
+// tray "종료" item used to) left rclone.exe processes orphaned and still
+// holding their drives, which broke every subsequent launch.
+func (rm *rcloneManager) quitGracefully() {
+	active := rm.activeMountsSnapshot()
+	if len(active) == 0 {
+		fyne.CurrentApp().Quit()
+		return
+	}
+	rm.logf("INFO", "[종료] 마운트 %d개 해제 후 종료", len(active))
 	go func() {
-		if err := engine.SignalGracefulStop(running.cmd.Process.Pid); err != nil {
-			rm.logf("WARN", "[언마운트] 정상 종료 신호 실패(%v) → 강제 종료", err)
-			_ = running.cmd.Process.Kill()
-			return
-		}
-		select {
-		case <-running.done:
-			// exited cleanly on its own
-		case <-time.After(5 * time.Second):
-			rm.logf("WARN", "[언마운트] 5초 내 종료 안 됨 → 강제 종료")
-			_ = running.cmd.Process.Kill()
-		}
+		rm.unmountAllAndWait()
+		fyne.Do(func() { fyne.CurrentApp().Quit() })
 	}()
 }
 
@@ -148,6 +177,30 @@ func (rm *rcloneManager) unmountAllOnDisconnect() {
 	for _, id := range ids {
 		rm.unmount(id)
 	}
+}
+
+// unmountAllAndWait stops every currently-active mount concurrently and
+// blocks until all of them are actually gone. Used before the app exits
+// (quitGracefully) or restarts itself (self-update) — both need the
+// drives released before the process disappears, not just "asked to
+// release."
+func (rm *rcloneManager) unmountAllAndWait() {
+	rm.activeMu.Lock()
+	ids := make([]string, 0, len(rm.active))
+	for id := range rm.active {
+		ids = append(ids, id)
+	}
+	rm.activeMu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(mountID string) {
+			defer wg.Done()
+			rm.stopMountAndWait(mountID)
+		}(id)
+	}
+	wg.Wait()
 }
 
 // startNetworkMonitor polls connectivity every 10s and reacts only on a

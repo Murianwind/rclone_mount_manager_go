@@ -52,7 +52,7 @@ func (rm *rcloneManager) buildTrayMenu() *fyne.Menu {
 	}
 
 	items = append(items, fyne.NewMenuItem("🚪 종료", func() {
-		fyne.Do(func() { fyne.CurrentApp().Quit() })
+		fyne.Do(func() { rm.quitGracefully() })
 	}))
 
 	return fyne.NewMenu("RcloneManager", items...)

@@ -28,12 +28,16 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.5"
+const appVersion = "0.0.4"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 func main() {
 	appDir := mustAppDir()
 	log := engine.RotatingLog{Path: filepath.Join(appDir, "RcloneManager.log"), MaxLines: 1000}
+
+	if exe, err := os.Executable(); err == nil {
+		engine.CleanupPreviousExe(exe)
+	}
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
 	win := fyneApp.NewWindow("RcloneManager")
