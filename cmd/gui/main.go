@@ -546,13 +546,13 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	if !ok {
 		return // no system tray support on this platform/build
 	}
-	// Note: Fyne's tray API only supports a menu (shown on any click) —
-	// there's no separate "left-click restores the window" action like a
-	// typical Windows tray icon. "열기" is kept as the first item so
-	// restoring the window is always one click away.
+	// SetSystemTrayWindow gives left-click = show/hide the window (like a
+	// normal Windows tray icon), right-click = the menu below. Fyne also
+	// auto-appends its own "Quit" item to any tray menu, so we only add
+	// "열기" here — adding our own quit item would just duplicate it.
+	desk.SetSystemTrayWindow(rm.win)
 	menu := fyne.NewMenu("RcloneManager",
 		fyne.NewMenuItem("열기", func() { rm.win.Show() }),
-		fyne.NewMenuItem("종료", func() { fyneApp.Quit() }),
 	)
 	desk.SetSystemTrayMenu(menu)
 }
