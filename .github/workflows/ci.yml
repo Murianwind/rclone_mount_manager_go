@@ -54,10 +54,5 @@ jobs:
             choco install mingw -y
           }
 
-      - name: build RcloneManager.exe (GUI)
+      - name: build check (GUI compiles for Windows)
         run: go build -ldflags -H=windowsgui -o RcloneManager.exe ./cmd/gui
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: RcloneManager-windows
-          path: RcloneManager.exe
