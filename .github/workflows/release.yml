@@ -1,0 +1,87 @@
+name: Build and Release RcloneManager
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build EXE on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: ensure a C compiler is available (Fyne needs cgo)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install mingw -y
+          }
+
+      # ── 1. 상태 변수 설정 (수동/자동 완벽 분기) ──
+      - name: Set Build Context
+        id: context
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            # [수동 실행] 타임스탬프 태그 생성 / 버전 업데이트 안 함 / 프리 릴리스
+            $tag = "v" + (Get-Date -Format "yyyyMMdd-HHmmss")
+            echo "TAG_NAME=$tag" >> $env:GITHUB_ENV
+            echo "SHOULD_UPDATE_VERSION=false" >> $env:GITHUB_ENV
+            echo "PRERELEASE=true" >> $env:GITHUB_ENV
+            echo "Mode: Manual (No version update, Pre-release)"
+          } else {
+            # [릴리스 발행] 태그 사용 / 버전 업데이트 수행 / 정식 릴리스
+            $tag = "${{ github.event.release.tag_name }}"
+            $cleanVer = $tag.TrimStart('v')
+            echo "TAG_NAME=$tag" >> $env:GITHUB_ENV
+            echo "CLEAN_VERSION=$cleanVer" >> $env:GITHUB_ENV
+            echo "SHOULD_UPDATE_VERSION=true" >> $env:GITHUB_ENV
+            echo "PRERELEASE=false" >> $env:GITHUB_ENV
+            echo "Mode: Release (Version update to $cleanVer, Official)"
+          }
+
+      # ── 2. 소스 코드 내 appVersion 수정 (릴리스 발행 시에만 실행) ──
+      - name: Update appVersion in main.go
+        if: env.SHOULD_UPDATE_VERSION == 'true'
+        shell: pwsh
+        run: |
+          $filePath = "cmd/gui/main.go"
+          $newVersion = "${{ env.CLEAN_VERSION }}"
+          (Get-Content $filePath) -replace 'const appVersion = ".*"', "const appVersion = `"$newVersion`"" | Set-Content $filePath
+          echo "Updated appVersion to $newVersion"
+
+      # ── 2-1. 변경된 소스 코드를 저장소로 다시 Push ──
+      - name: Commit and Push Version Change
+        if: env.SHOULD_UPDATE_VERSION == 'true'
+        shell: pwsh
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add cmd/gui/main.go
+          git commit -m "chore: update version to ${{ env.CLEAN_VERSION }} [skip ci]"
+          git push origin HEAD:${{ github.event.release.target_commitish }}
+
+      - name: Build with go build
+        run: go build -o RcloneManager.exe ./cmd/gui
+
+      - name: Create ZIP archive
+        run: Compress-Archive -Path RcloneManager.exe -DestinationPath RcloneManager.zip
+
+      # ── 3. 릴리스 업로드 ──
+      - name: Upload Asset to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          files: RcloneManager.zip
+          prerelease: ${{ env.PRERELEASE }}
