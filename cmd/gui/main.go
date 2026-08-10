@@ -28,7 +28,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.4"
+const appVersion = "0.0.5"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 func main() {
