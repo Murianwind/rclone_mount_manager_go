@@ -20,7 +20,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.1"
+const appVersion = "2.0.0"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // table column indices — keep in sync with buildTable's header labels.
@@ -65,6 +65,7 @@ func main() {
 	rm.build()
 	rm.setupTray(fyneApp)
 	rm.refreshVersionLabel()
+	rm.startNetworkMonitor()
 
 	win.SetCloseIntercept(func() {
 		win.Hide() // minimize to tray instead of quitting, matching the Python app
@@ -451,7 +452,8 @@ func (rm *rcloneManager) rcloneExePath() (string, bool) {
 
 // autoMountAll starts every mount flagged AutoMount. Called once from the
 // app's "started" lifecycle hook so it runs after the event loop (and
-// therefore dialogs/UI updates) is actually safe to use.
+// therefore dialogs/UI updates) is actually safe to use — and again by the
+// network monitor whenever connectivity is (re)established.
 func (rm *rcloneManager) autoMountAll() {
 	for _, m := range rm.cfg.Mounts {
 		if m.AutoMount {
@@ -460,7 +462,54 @@ func (rm *rcloneManager) autoMountAll() {
 	}
 }
 
+// unmountAllOnDisconnect unmounts every currently-active mount — regardless
+// of its AutoMount flag — since a mount whose remote just went unreachable
+// can hang the drive if left alone.
+func (rm *rcloneManager) unmountAllOnDisconnect() {
+	rm.activeMu.Lock()
+	ids := make([]string, 0, len(rm.active))
+	for id := range rm.active {
+		ids = append(ids, id)
+	}
+	rm.activeMu.Unlock()
+
+	for _, id := range ids {
+		rm.unmount(id)
+	}
+}
+
+// startNetworkMonitor polls connectivity every 10s and reacts only on a
+// state *transition* (disconnected->connected or vice versa) — mirrors the
+// Python version's _start_net_monitor exactly, including starting from an
+// "unknown" state so the very first check always fires once (connected at
+// startup re-triggers auto-mount as a safety net; disconnected at startup
+// does nothing since there's nothing mounted yet to tear down).
+func (rm *rcloneManager) startNetworkMonitor() {
+	go func() {
+		var wasConnected *bool
+		for {
+			connected := engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
+
+			if wasConnected == nil || *wasConnected != connected {
+				c := connected
+				wasConnected = &c
+				if connected {
+					fyne.Do(func() { rm.autoMountAll() })
+				} else {
+					fyne.Do(func() { rm.unmountAllOnDisconnect() })
+				}
+			}
+
+			time.Sleep(10 * time.Second)
+		}
+	}()
+}
+
 func (rm *rcloneManager) mount(m engine.Mount) {
+	if rm.isRunning(m.ID) {
+		return // already mounted — avoid spawning a duplicate rclone process
+	}
+
 	exe, ok := rm.rcloneExePath()
 	if !ok {
 		dialog.ShowInformation("알림", "rclone.exe를 찾을 수 없습니다. 먼저 rclone 경로를 등록해 주세요.", rm.win)
