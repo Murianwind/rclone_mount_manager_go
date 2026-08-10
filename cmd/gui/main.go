@@ -20,7 +20,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "2.0.0"
+const appVersion = "0.0.1"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // table column indices — keep in sync with buildTable's header labels.
