@@ -15,6 +15,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -206,6 +207,7 @@ func (rm *rcloneManager) buildTable() {
 		},
 	)
 	rm.table.ShowHeaderRow = true
+	rm.table.HideSeparators = true
 	rm.table.CreateHeader = func() fyne.CanvasObject {
 		return widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	}
@@ -311,13 +313,24 @@ func (rm *rcloneManager) cellLabel(cell *fyne.Container) *widget.Label {
 func (rm *rcloneManager) cellActionButtons(cell *fyne.Container) (toggle, edit, del *widget.Button) {
 	if len(cell.Objects) == 1 {
 		if row, ok := cell.Objects[0].(*fyne.Container); ok && len(row.Objects) == 3 {
-			return row.Objects[0].(*widget.Button), row.Objects[1].(*widget.Button), row.Objects[2].(*widget.Button)
+			if toggleWrap, ok := row.Objects[0].(*fyne.Container); ok && len(toggleWrap.Objects) == 1 {
+				if t, ok := toggleWrap.Objects[0].(*widget.Button); ok {
+					if e, ok := row.Objects[1].(*widget.Button); ok {
+						if d, ok := row.Objects[2].(*widget.Button); ok {
+							return t, e, d
+						}
+					}
+				}
+			}
 		}
 	}
 	toggle = widget.NewButton("", nil)
 	edit = widget.NewButton("편집", nil)
 	del = widget.NewButton("삭제", nil)
-	cell.Objects = []fyne.CanvasObject{container.NewHBox(toggle, edit, del)}
+	// "마운트" vs "해제" are different lengths, so without a fixed size the
+	// button (and everything after it) shifts width every time it toggles.
+	toggleFixed := container.New(layout.NewGridWrapLayout(fyne.NewSize(64, 34)), toggle)
+	cell.Objects = []fyne.CanvasObject{container.NewHBox(toggleFixed, edit, del)}
 	return toggle, edit, del
 }
 
