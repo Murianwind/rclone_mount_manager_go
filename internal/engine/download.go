@@ -1,0 +1,121 @@
+package engine
+
+import (
+	"archive/zip"
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// Download status values mirror download_rclone()'s return convention
+// (True / "manual" / error string), just as Go constants + an error
+// instead of Python's mixed-type return.
+const (
+	DownloadStatusInstalled = "installed" // replaced rclone.exe directly
+	DownloadStatusManual    = "manual"    // saved alongside; needs manual swap
+)
+
+// rcloneDownloadURLFn builds the wiserain fork release asset URL for a
+// given version. It's a package var (not a plain function) so tests can
+// redirect it at an httptest server instead of the real GitHub releases
+// CDN.
+var rcloneDownloadURLFn = func(version string) string {
+	return fmt.Sprintf(
+		"https://github.com/wiserain/rclone/releases/download/v%s/rclone-v%s-windows-amd64.zip",
+		version, version)
+}
+
+// DownloadRclone downloads the given rclone version and installs it as
+// rclone.exe in destDir, mirroring download_rclone().
+//
+// If destDir/rclone.exe can't be written directly — e.g. it's locked by a
+// running mount process, the situation the Python version specifically
+// handles — the new binary is saved as destDir/rclone_new.exe instead and
+// DownloadStatusManual is returned so the caller can prompt the user for a
+// manual swap (same behavior as the Python PermissionError fallback).
+func DownloadRclone(client *http.Client, destDir, version string) (status string, err error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	data, err := httpGetBytes(client, rcloneDownloadURLFn(version))
+	if err != nil {
+		return "", err
+	}
+
+	exeData, err := extractRcloneExeFromZip(data)
+	if err != nil {
+		return "", err
+	}
+
+	target := filepath.Join(destDir, "rclone.exe")
+	if werr := os.WriteFile(target, exeData, 0o755); werr != nil {
+		fallback := filepath.Join(destDir, "rclone_new.exe")
+		if ferr := os.WriteFile(fallback, exeData, 0o755); ferr != nil {
+			return "", ferr
+		}
+		return DownloadStatusManual, nil
+	}
+	return DownloadStatusInstalled, nil
+}
+
+func extractRcloneExeFromZip(data []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, "rclone.exe") {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer rc.Close()
+			return io.ReadAll(rc)
+		}
+	}
+	return nil, fmt.Errorf("rclone.exe not found in downloaded archive")
+}
+
+// DownloadAppRelease downloads an app-update release asset into destDir
+// under a fixed name, mirroring download_app_release(). A running exe
+// can't safely overwrite itself mid-download on Windows, so — like the
+// Python version — this always lands the file next to the running exe and
+// leaves the actual swap for later (Phase 3's automatic
+// quit->install->relaunch updater, or a manual replace by the user).
+func DownloadAppRelease(client *http.Client, destDir, assetURL string) (status string, err error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	suffix := ".zip"
+	if idx := strings.LastIndex(assetURL, "."); idx != -1 {
+		suffix = assetURL[idx:]
+	}
+	dest := filepath.Join(destDir, "RcloneManager_update"+suffix)
+
+	data, err := httpGetBytes(client, assetURL)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", err
+	}
+	return DownloadStatusManual, nil
+}
+
+func httpGetBytes(client *http.Client, url string) ([]byte, error) {
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+	return io.ReadAll(resp.Body)
+}
