@@ -75,7 +75,10 @@ func (rm *rcloneManager) updateTableCell(id widget.TableCellID, cellWrap *fyne.C
 	content := cellWrap.Objects[1].(*fyne.Container)
 
 	rows := rm.rows()
-	if id.Row < len(rows) && id.Row == rm.selectedRow {
+	// 버튼이 있는 액션 컬럼은 하이라이트에서 제외한다 — 버튼이 셀을
+	// 꽉 채우지 않아서, 그 틈으로 강조색이 얇은 선처럼 삐져나와 보이는
+	// 문제가 있었다.
+	if id.Row < len(rows) && id.Row == rm.selectedRow && id.Col != colActions {
 		bg.FillColor = theme.Color(theme.ColorNameSelection)
 	} else {
 		bg.FillColor = color.Transparent

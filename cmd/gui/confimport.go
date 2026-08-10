@@ -38,7 +38,6 @@ func (rm *rcloneManager) showConfImportDialog() {
 			fd.SetLocation(lister)
 		}
 	}
-	fd.Resize(fyne.NewSize(700, 440)) // 창보다 커지면 취소/열기 버튼이 창 밖으로 밀려남
 	fd.Show()
 }
 

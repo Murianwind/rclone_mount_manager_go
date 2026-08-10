@@ -21,7 +21,7 @@ func (rm *rcloneManager) build() {
 	rm.buildTable()
 
 	spacer := canvas.NewRectangle(color.Transparent)
-	spacer.SetMinSize(fyne.NewSize(0, 10))
+	spacer.SetMinSize(fyne.NewSize(0, 16))
 
 	top := container.NewVBox(
 		rm.buildHeaderRow(),
@@ -70,7 +70,6 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 			rm.persist()
 			rm.refreshVersionLabel()
 		}, rm.win)
-		fd.Resize(fyne.NewSize(700, 440)) // 창보다 커지면 취소/열기 버튼이 창 밖으로 밀려남
 		fd.Show()
 	})
 
