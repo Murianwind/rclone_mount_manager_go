@@ -23,11 +23,19 @@ func (rm *rcloneManager) build() {
 	spacer := canvas.NewRectangle(color.Transparent)
 	spacer.SetMinSize(fyne.NewSize(0, 16))
 
+	// Table의 MinSize()는 컬럼 폭 합계를 반영하지 않아서, 이게 없으면
+	// 창을 표 내용보다 좁게 줄일 수 있어 오른쪽(액션) 컬럼이 잘려
+	// 보인다. 눈에는 안 보이지만 폭만 차지하는 사각형으로 창의 최소
+	// 크기 자체를 강제한다.
+	minWidthSpacer := canvas.NewRectangle(color.Transparent)
+	minWidthSpacer.SetMinSize(fyne.NewSize(tableContentWidth+20, 0))
+
 	top := container.NewVBox(
 		rm.buildHeaderRow(),
 		rm.buildRclonePathRow(),
 		rm.buildStartupOptionsRow(),
 		spacer,
+		minWidthSpacer,
 	)
 
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil, "") })

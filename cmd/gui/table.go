@@ -26,6 +26,11 @@ const (
 	colCount
 )
 
+// tableContentWidth is the sum of every column's fixed width — used
+// elsewhere to enforce a window minimum width, since Table itself doesn't
+// factor column widths into its own MinSize (see build()'s minWidthSpacer).
+const tableContentWidth = 80 + 46 + 70 + 230 + 70 + 190
+
 func (rm *rcloneManager) buildTable() {
 	rm.table = widget.NewTable(
 		func() (int, int) { return len(rm.rows()), colCount },
