@@ -31,5 +31,29 @@ jobs:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Windows cross-compile check
-        run: GOOS=windows GOARCH=amd64 go build -o /tmp/RcloneManager.exe ./...
+      - name: Windows cross-compile check (engine only)
+        run: GOOS=windows GOARCH=amd64 go build -o /tmp/RcloneManager.exe ./internal/...
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: ensure a C compiler is available (Fyne needs cgo)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            choco install mingw -y
+          }
+
+      - name: build RcloneManager.exe (GUI)
+        run: go build -o RcloneManager.exe ./cmd/gui
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RcloneManager-windows
+          path: RcloneManager.exe
