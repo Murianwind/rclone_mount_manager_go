@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,7 +22,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.3"
+const appVersion = "2.0.0"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // table column indices — keep in sync with buildTable's header labels.
@@ -37,10 +38,15 @@ const (
 // runningMount tracks a live rclone mount process. done is closed by the
 // single goroutine that owns cmd.Wait() — unmount() waits on it (with a
 // timeout) instead of calling Wait() itself, since exec.Cmd.Wait() may
-// only be called once.
+// only be called once. stderr captures rclone's error output so a failed
+// mount can show *why* it failed instead of just going quietly back to
+// "해제됨". stoppedByUs distinguishes a failure from a normal
+// unmount (both make the process exit, often with a non-zero code).
 type runningMount struct {
-	cmd  *exec.Cmd
-	done chan struct{}
+	cmd         *exec.Cmd
+	done        chan struct{}
+	stderr      *bytes.Buffer
+	stoppedByUs bool
 }
 
 func main() {
@@ -547,6 +553,8 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	args := engine.BuildCmd(exe, m)
 	cmd := exec.Command(args[0], args[1:]...)
 	engine.ConfigureBackgroundProcess(cmd) // hide console window, own process group
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 	if err := cmd.Start(); err != nil {
 		rm.logf("ERROR", "[마운트] %s:%s 프로세스 시작 실패: %v", m.Remote, m.RemotePath, err)
 		dialog.ShowError(err, rm.win)
@@ -556,7 +564,7 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 
 	done := make(chan struct{})
 	rm.activeMu.Lock()
-	rm.active[m.ID] = &runningMount{cmd: cmd, done: done}
+	rm.active[m.ID] = &runningMount{cmd: cmd, done: done, stderr: &stderrBuf}
 	rm.activeMu.Unlock()
 	rm.table.Refresh()
 	rm.refreshTrayMenu()
@@ -564,16 +572,51 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	go func() {
 		err := cmd.Wait() // process exits when unmounted (or on error)
 		close(done)
+
 		rm.activeMu.Lock()
+		running := rm.active[m.ID]
+		stoppedByUs := running != nil && running.stoppedByUs
 		delete(rm.active, m.ID)
 		rm.activeMu.Unlock()
+
 		if err != nil {
 			rm.logf("WARN", "[마운트] %s:%s 프로세스 종료 (오류 종료: %v)", m.Remote, m.RemotePath, err)
 		} else {
 			rm.logf("INFO", "[마운트] %s:%s 프로세스 종료", m.Remote, m.RemotePath)
 		}
-		fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
+
+		// Only treat this as a *failure* worth interrupting the user for
+		// when we didn't ask it to stop — unmounting also makes the
+		// process exit, often with a non-zero code, and that's expected.
+		if err != nil && !stoppedByUs {
+			detail := strings.TrimSpace(stderrBuf.String())
+			fyne.Do(func() {
+				rm.table.Refresh()
+				rm.refreshTrayMenu()
+				rm.showMountFailureDialog(m, detail)
+			})
+		} else {
+			fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
+		}
 	}()
+}
+
+// showMountFailureDialog shows rclone's own error output (its stderr) so
+// the user can see *why* a mount failed, instead of it just silently going
+// back to "해제됨". Also points at the log file for the full history.
+func (rm *rcloneManager) showMountFailureDialog(m engine.Mount, detail string) {
+	if detail == "" {
+		detail = "(rclone에서 별도 오류 메시지를 출력하지 않았습니다)"
+	}
+	msg := fmt.Sprintf(
+		"%s:%s 마운트에 실패했습니다.\n\nrclone 오류:\n%s\n\n자세한 내용은 로그 파일을 확인하세요:\n%s",
+		m.Remote, m.RemotePath, detail, rm.log.Path,
+	)
+	label := widget.NewLabel(msg)
+	label.Wrapping = fyne.TextWrapWord
+	scroll := container.NewVScroll(label)
+	scroll.SetMinSize(fyne.NewSize(420, 220))
+	dialog.ShowCustom("마운트 오류", "확인", scroll, rm.win)
 }
 
 // unmount asks a running mount to stop gracefully (so rclone unmounts its
@@ -584,6 +627,9 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 func (rm *rcloneManager) unmount(mountID string) {
 	rm.activeMu.Lock()
 	running, ok := rm.active[mountID]
+	if ok {
+		running.stoppedByUs = true
+	}
 	rm.activeMu.Unlock()
 	if !ok || running.cmd.Process == nil {
 		return
