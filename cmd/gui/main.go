@@ -23,6 +23,16 @@ import (
 const appVersion = "2.0.0"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
+// table column indices — keep in sync with buildTable's header labels.
+const (
+	colAuto = iota
+	colDrive
+	colRemote
+	colStatus
+	colActions
+	colCount
+)
+
 // runningMount tracks a live rclone mount process. done is closed by the
 // single goroutine that owns cmd.Wait() — unmount() waits on it (with a
 // timeout) instead of calling Wait() itself, since exec.Cmd.Wait() may
@@ -37,7 +47,7 @@ func main() {
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")
 	win := fyneApp.NewWindow("RcloneManager")
-	win.Resize(fyne.NewSize(720, 480))
+	win.Resize(fyne.NewSize(760, 480))
 
 	rm := &rcloneManager{
 		appDir: appDir,
@@ -60,11 +70,22 @@ func main() {
 		win.Hide() // minimize to tray instead of quitting, matching the Python app
 	})
 
-	if rm.cfg.StartMinimized {
-		win.Hide()
-	}
+	// Auto-mount needs the event loop actually running (dialogs/UI updates
+	// aren't safe before that), so it's wired to the "app started" hook
+	// rather than called directly here.
+	fyneApp.Lifecycle().SetOnStarted(func() {
+		rm.autoMountAll()
+	})
 
-	win.ShowAndRun()
+	if rm.cfg.StartMinimized {
+		// Deliberately skip win.Show(): ShowAndRun() would force it open
+		// regardless, which is why this didn't work before. The tray icon
+		// (already wired in setupTray) keeps the app reachable.
+		fyneApp.Run()
+	} else {
+		win.Show()
+		fyneApp.Run()
+	}
 }
 
 // mustAppDir returns the directory the running executable lives in — the
@@ -84,7 +105,7 @@ type rcloneManager struct {
 	cfg    engine.Config
 	win    fyne.Window
 
-	list          *widget.List
+	table         *widget.Table
 	rcPathEntry   *widget.Entry
 	rcVersionText *widget.Label
 
@@ -93,23 +114,18 @@ type rcloneManager struct {
 }
 
 func (rm *rcloneManager) build() {
-	rm.list = widget.NewList(
-		func() int { return len(rm.cfg.Mounts) },
-		func() fyne.CanvasObject { return rm.newMountRow() },
-		func(i widget.ListItemID, obj fyne.CanvasObject) { rm.updateMountRow(i, obj) },
-	)
+	rm.buildTable()
 
 	top := container.NewVBox(
 		rm.buildHeaderRow(),
 		rm.buildRclonePathRow(),
 		rm.buildStartupOptionsRow(),
-		rm.buildTableHeaderRow(),
 	)
 
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil) })
 	bottom := container.NewBorder(nil, nil, nil, addBtn)
 
-	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, rm.list))
+	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, rm.table))
 }
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
@@ -177,82 +193,130 @@ func (rm *rcloneManager) buildStartupOptionsRow() fyne.CanvasObject {
 	return container.NewHBox(autoStart, autoMount, startMinimized)
 }
 
-func (rm *rcloneManager) buildTableHeaderRow() fyne.CanvasObject {
-	bold := func(s string) *widget.Label {
-		return widget.NewLabelWithStyle(s, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+// ── mount table ──
+
+func (rm *rcloneManager) buildTable() {
+	rm.table = widget.NewTable(
+		func() (int, int) { return len(rm.cfg.Mounts), colCount },
+		func() fyne.CanvasObject { return container.NewStack() },
+		func(id widget.TableCellID, cell fyne.CanvasObject) {
+			rm.updateTableCell(id, cell.(*fyne.Container))
+		},
+	)
+	rm.table.ShowHeaderRow = true
+	rm.table.CreateHeader = func() fyne.CanvasObject {
+		return widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	}
-	return container.NewGridWithColumns(5,
-		bold("자동"), bold("드라이브"), bold("리모트(서브경로)"), bold("상태"), bold(""))
+	rm.table.UpdateHeader = func(id widget.TableCellID, o fyne.CanvasObject) {
+		headers := [colCount]string{"자동", "드라이브", "리모트(서브경로)", "상태", ""}
+		o.(*widget.Label).SetText(headers[id.Col])
+	}
+	rm.table.SetColumnWidth(colAuto, 50)
+	rm.table.SetColumnWidth(colDrive, 80)
+	rm.table.SetColumnWidth(colRemote, 280)
+	rm.table.SetColumnWidth(colStatus, 80)
+	rm.table.SetColumnWidth(colActions, 200)
 }
 
-// ── mount list rows ──
-
-// newMountRow builds one (empty, template) list row. updateMountRow fills
-// it in by reaching into row.Objects — the columns here must match
-// buildTableHeaderRow: 자동 | 드라이브 | 리모트(서브경로) | 상태 | 버튼.
-func (rm *rcloneManager) newMountRow() fyne.CanvasObject {
-	auto := widget.NewCheck("", nil)
-	drive := widget.NewLabel("")
-	remote := widget.NewLabel("")
-	status := widget.NewLabel("")
-	toggle := widget.NewButton("", nil)
-	edit := widget.NewButton("편집", nil)
-	del := widget.NewButton("삭제", nil)
-
-	return container.NewGridWithColumns(5,
-		auto, drive, remote, status, container.NewHBox(toggle, edit, del))
-}
-
-func (rm *rcloneManager) updateMountRow(i widget.ListItemID, obj fyne.CanvasObject) {
-	if i >= len(rm.cfg.Mounts) {
+// updateTableCell fills in one cell. CreateCell can't know in advance
+// which column a recycled template will be asked to render, so each
+// helper (cellCheck/cellLabel/cellActionButtons) replaces the cell's
+// content if it isn't already the right widget type.
+func (rm *rcloneManager) updateTableCell(id widget.TableCellID, cell *fyne.Container) {
+	if id.Row >= len(rm.cfg.Mounts) {
 		return
 	}
-	m := rm.cfg.Mounts[i]
-	grid := obj.(*fyne.Container)
+	m := rm.cfg.Mounts[id.Row]
 
-	auto := grid.Objects[0].(*widget.Check)
-	drive := grid.Objects[1].(*widget.Label)
-	remote := grid.Objects[2].(*widget.Label)
-	status := grid.Objects[3].(*widget.Label)
-	buttons := grid.Objects[4].(*fyne.Container)
-	toggle := buttons.Objects[0].(*widget.Button)
-	editBtn := buttons.Objects[1].(*widget.Button)
-	delBtn := buttons.Objects[2].(*widget.Button)
+	switch id.Col {
+	case colAuto:
+		check := rm.cellCheck(cell)
+		check.SetChecked(m.AutoMount)
+		check.OnChanged = func(checked bool) {
+			m.AutoMount = checked
+			rm.saveMount(m)
+		}
 
-	auto.SetChecked(m.AutoMount)
-	auto.OnChanged = func(checked bool) {
-		m.AutoMount = checked
-		rm.saveMount(m)
-	}
+	case colDrive:
+		label := rm.cellLabel(cell)
+		drive := strings.TrimSpace(m.Drive)
+		if drive == "" {
+			drive = "(자동)"
+		}
+		label.SetText(drive)
 
-	driveText := strings.TrimSpace(m.Drive)
-	if driveText == "" {
-		driveText = "(자동)"
-	}
-	drive.SetText(driveText)
-	remote.SetText(fmt.Sprintf("%s:%s", m.Remote, m.RemotePath))
+	case colRemote:
+		label := rm.cellLabel(cell)
+		label.SetText(fmt.Sprintf("%s:%s", m.Remote, m.RemotePath))
 
-	rm.activeMu.Lock()
-	_, running := rm.active[m.ID]
-	rm.activeMu.Unlock()
-
-	if running {
-		status.SetText("연결됨")
-		toggle.SetText("해제")
-	} else {
-		status.SetText("해제됨")
-		toggle.SetText("마운트")
-	}
-
-	toggle.OnTapped = func() {
-		if running {
-			rm.unmount(m.ID)
+	case colStatus:
+		label := rm.cellLabel(cell)
+		if rm.isRunning(m.ID) {
+			label.SetText("연결됨")
 		} else {
-			rm.mount(m)
+			label.SetText("해제됨")
+		}
+
+	case colActions:
+		toggle, editBtn, delBtn := rm.cellActionButtons(cell)
+		running := rm.isRunning(m.ID)
+		if running {
+			toggle.SetText("해제")
+		} else {
+			toggle.SetText("마운트")
+		}
+		toggle.OnTapped = func() {
+			if running {
+				rm.unmount(m.ID)
+			} else {
+				rm.mount(m)
+			}
+		}
+		editBtn.OnTapped = func() { rm.showMountDialog(&m) }
+		delBtn.OnTapped = func() { rm.confirmDelete(m) }
+	}
+}
+
+func (rm *rcloneManager) isRunning(mountID string) bool {
+	rm.activeMu.Lock()
+	defer rm.activeMu.Unlock()
+	_, running := rm.active[mountID]
+	return running
+}
+
+func (rm *rcloneManager) cellCheck(cell *fyne.Container) *widget.Check {
+	if len(cell.Objects) == 1 {
+		if c, ok := cell.Objects[0].(*widget.Check); ok {
+			return c
 		}
 	}
-	editBtn.OnTapped = func() { rm.showMountDialog(&m) }
-	delBtn.OnTapped = func() { rm.confirmDelete(m) }
+	c := widget.NewCheck("", nil)
+	cell.Objects = []fyne.CanvasObject{c}
+	return c
+}
+
+func (rm *rcloneManager) cellLabel(cell *fyne.Container) *widget.Label {
+	if len(cell.Objects) == 1 {
+		if l, ok := cell.Objects[0].(*widget.Label); ok {
+			return l
+		}
+	}
+	l := widget.NewLabel("")
+	cell.Objects = []fyne.CanvasObject{l}
+	return l
+}
+
+func (rm *rcloneManager) cellActionButtons(cell *fyne.Container) (toggle, edit, del *widget.Button) {
+	if len(cell.Objects) == 1 {
+		if row, ok := cell.Objects[0].(*fyne.Container); ok && len(row.Objects) == 3 {
+			return row.Objects[0].(*widget.Button), row.Objects[1].(*widget.Button), row.Objects[2].(*widget.Button)
+		}
+	}
+	toggle = widget.NewButton("", nil)
+	edit = widget.NewButton("편집", nil)
+	del = widget.NewButton("삭제", nil)
+	cell.Objects = []fyne.CanvasObject{container.NewHBox(toggle, edit, del)}
+	return toggle, edit, del
 }
 
 // ── add / edit dialog ──
@@ -365,7 +429,7 @@ func (rm *rcloneManager) persist() {
 		dialog.ShowError(err, rm.win)
 		return
 	}
-	rm.list.Refresh()
+	rm.table.Refresh()
 }
 
 // ── mounting ──
@@ -382,6 +446,17 @@ func (rm *rcloneManager) rcloneExePath() (string, bool) {
 		return fallback, true
 	}
 	return "", false
+}
+
+// autoMountAll starts every mount flagged AutoMount. Called once from the
+// app's "started" lifecycle hook so it runs after the event loop (and
+// therefore dialogs/UI updates) is actually safe to use.
+func (rm *rcloneManager) autoMountAll() {
+	for _, m := range rm.cfg.Mounts {
+		if m.AutoMount {
+			rm.mount(m)
+		}
+	}
 }
 
 func (rm *rcloneManager) mount(m engine.Mount) {
@@ -403,7 +478,7 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 	rm.activeMu.Lock()
 	rm.active[m.ID] = &runningMount{cmd: cmd, done: done}
 	rm.activeMu.Unlock()
-	rm.list.Refresh()
+	rm.table.Refresh()
 
 	go func() {
 		_ = cmd.Wait() // process exits when unmounted (or on error)
@@ -411,15 +486,15 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 		rm.activeMu.Lock()
 		delete(rm.active, m.ID)
 		rm.activeMu.Unlock()
-		fyne.Do(func() { rm.list.Refresh() })
+		fyne.Do(func() { rm.table.Refresh() })
 	}()
 }
 
 // unmount asks a running mount to stop gracefully (so rclone unmounts its
 // WinFsp filesystem cleanly instead of leaving the drive letter stuck),
-// falling back to a hard Kill() if it doesn't exit in time. Runs the wait
-// in a goroutine since it can block for a few seconds and this is called
-// from a button handler on the UI thread.
+// falling back to a hard Kill() if it doesn't exit in time. Runs in a
+// goroutine since it can block for a few seconds and this is called from a
+// button handler on the UI thread.
 func (rm *rcloneManager) unmount(mountID string) {
 	rm.activeMu.Lock()
 	running, ok := rm.active[mountID]
@@ -473,8 +548,8 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	}
 	// Note: Fyne's tray API only supports a menu (shown on any click) —
 	// there's no separate "left-click restores the window" action like a
-	// typical Windows tray icon. "열기" is kept as the first/default item
-	// so restoring the window is always one click away.
+	// typical Windows tray icon. "열기" is kept as the first item so
+	// restoring the window is always one click away.
 	menu := fyne.NewMenu("RcloneManager",
 		fyne.NewMenuItem("열기", func() { rm.win.Show() }),
 		fyne.NewMenuItem("종료", func() { fyneApp.Quit() }),
