@@ -1,13 +1,60 @@
+codecov:
+  require_ci_to_pass: true
+
 coverage:
   status:
+    # 전체 하나의 숫자는 느슨한 안전망 정도로만 유지 — 실제 판단은
+    # 아래 component별 목표치가 담당한다.
     project:
       default:
-        target: 85%
-        threshold: 2%
+        target: 75%
+        threshold: 3%
     patch:
       default:
-        target: 80%
+        target: 70%
+
+component_management:
+  individual_components:
+    # 순수 로직: 외부 I/O 없이 입력→출력만 있는 코드. 분기별로 테스트
+    # 비용이 낮고 회귀 방지 효과는 확실해서 높은 목표치를 건다.
+    - component_id: pure_logic
+      name: "순수 로직 (flags/version/mount/config/rcloneconf/log/network/startup)"
+      paths:
+        - "internal/engine/flags.go"
+        - "internal/engine/version.go"
+        - "internal/engine/mount.go"
+        - "internal/engine/config.go"
+        - "internal/engine/rcloneconf.go"
+        - "internal/engine/log.go"
+        - "internal/engine/network.go"
+        - "internal/engine/process_other.go"
+        - "internal/engine/process_windows.go"
+        - "internal/engine/startup.go"
+        - "internal/engine/startup_other.go"
+        - "internal/engine/startup_windows.go"
+      statuses:
+        - type: project
+          target: 90%
+        - type: patch
+          target: 90%
+
+    # I/O 경계: 네트워크·파일시스템을 직접 다루는 코드. 정상 경로와
+    # 흔한 실패(HTTP 오류, 손상된 zip, nil 클라이언트 등)는 테스트하되,
+    # "쓰기 도중 디스크 꽉 참"류의 실무에서 거의 안 터지는 방어 분기까지
+    # 억지로 채우진 않는다 — 그래서 목표치를 낮게 잡는다.
+    - component_id: io_boundary
+      name: "I/O 경계 (download/release/update — 네트워크 · 파일시스템)"
+      paths:
+        - "internal/engine/download.go"
+        - "internal/engine/release.go"
+        - "internal/engine/update.go"
+      statuses:
+        - type: project
+          target: 55%
+        - type: patch
+          target: 55%
+
 comment:
-  layout: "header, diff, flags, files"
+  layout: "header, diff, flags, components"
   behavior: default
   require_changes: false
