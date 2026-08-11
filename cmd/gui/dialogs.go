@@ -31,7 +31,6 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 		})
 	})
 	cacheModeSelect := widget.NewSelect([]string{"off", "minimal", "writes", "full"}, nil)
-	cacheModeSelect.PlaceHolder = "(선택 안 함)"
 	extraFlagsEntry := widget.NewMultiLineEntry()
 	extraFlagsEntry.SetPlaceHolder("--flag=value;--flag2 value2")
 	extraFlagsEntry.Wrapping = fyne.TextWrapWord
@@ -41,10 +40,17 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 		pathEntry.SetText(existing.RemotePath)
 		driveEntry.SetText(existing.Drive)
 		cacheDirEntry.SetText(existing.CacheDir)
-		cacheModeSelect.SetSelected(existing.CacheMode)
+		if existing.CacheMode != "" {
+			cacheModeSelect.SetSelected(existing.CacheMode)
+		} else {
+			cacheModeSelect.SetSelected("off") // 예전에 빈 값으로 저장된 마운트도 실질적으로 off와 동일
+		}
 		extraFlagsEntry.SetText(existing.ExtraFlags)
-	} else if prefillRemote != "" {
-		remoteEntry.SetText(prefillRemote)
+	} else {
+		cacheModeSelect.SetSelected("off")
+		if prefillRemote != "" {
+			remoteEntry.SetText(prefillRemote)
+		}
 	}
 
 	testBtn := widget.NewButton("연결 테스트", func() {
