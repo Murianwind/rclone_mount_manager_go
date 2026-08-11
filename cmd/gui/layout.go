@@ -56,6 +56,7 @@ func (rm *rcloneManager) build() {
 
 	root := container.New(&verticalGuardLayout{
 		top: topScroll, center: rm.table, bottom: bottomScroll,
+		topContent: topContent, bottomContent: bottomContent,
 		minTop: 32, minBottom: 32,
 	}, topScroll, rm.table, bottomScroll)
 
@@ -86,18 +87,13 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 	rm.rcPathEntry.SetMinRowsVisible(1) // 평소엔 한 줄만큼만 차지, 긴 경로는 줄바꿈+스크롤로 처리
 
 	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
-		fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-			if err != nil || reader == nil {
-				return
-			}
-			defer reader.Close()
-			rm.rcPathEntry.SetText(reader.URI().Path())
-			rm.cfg.RclonePath = reader.URI().Path()
+		startDir := filepath.Dir(strings.TrimSpace(rm.cfg.RclonePath))
+		rm.showFilePicker("rclone.exe 선택", startDir, func(path string) {
+			rm.rcPathEntry.SetText(path)
+			rm.cfg.RclonePath = path
 			rm.persist()
 			rm.refreshVersionLabel()
-		}, rm.win)
-		fd.Show()
-		fd.Resize(fyne.NewSize(700, 460)) // Show() 이후에 불러야 안전함 (이전엔 순서가 반대라 크래시 원인이었음)
+		})
 	})
 
 	rm.rcPathEntry.OnSubmitted = func(s string) {

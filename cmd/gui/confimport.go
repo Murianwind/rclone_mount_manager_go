@@ -7,7 +7,6 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -17,29 +16,19 @@ import (
 // 그 안의 리모트를 체크박스로 선택해 cfg.Remotes(원본 목록)에 추가한다.
 // 기존 Python 버전의 _import_conf()/ConfImportDialog에 대응한다.
 func (rm *rcloneManager) showConfImportDialog() {
-	fd := dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err != nil || reader == nil {
-			return
-		}
-		path := reader.URI().Path()
-		reader.Close()
+	startDir := rm.appDir
+	if defaultConf, ok := engine.FindDefaultRcloneConf(rm.appDir); ok {
+		startDir = parentDir(defaultConf)
+	}
 
+	rm.showFilePicker("rclone.conf 선택", startDir, func(path string) {
 		remotes := engine.ParseRcloneConf(path)
 		if len(remotes) == 0 {
 			dialog.ShowInformation("가져오기", "해당 파일에서 리모트를 찾지 못했습니다.", rm.win)
 			return
 		}
 		rm.showRemoteSelectDialog(remotes)
-	}, rm.win)
-
-	if defaultConf, ok := engine.FindDefaultRcloneConf(rm.appDir); ok {
-		dirURI := storage.NewFileURI(parentDir(defaultConf))
-		if lister, err := storage.ListerForURI(dirURI); err == nil {
-			fd.SetLocation(lister)
-		}
-	}
-	fd.Show()
-	fd.Resize(fyne.NewSize(700, 460)) // Show() 이후에 불러야 안전함
+	})
 }
 
 // showRemoteSelectDialog는 파싱된 리모트 후보 목록을 체크박스로 보여주고,

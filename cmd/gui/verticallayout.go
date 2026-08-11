@@ -13,17 +13,26 @@ import "fyne.io/fyne/v2"
 // because Border always reserves top/bottom's full natural height no
 // matter how little space is available, which is what let the table get
 // crushed when the window was resized short.
+//
+// top/center/bottom are what actually get Resize()/Move()'d — top and
+// bottom are expected to be Scroll wrappers. topContent/bottomContent are
+// the *unwrapped* content inside those scrolls, asked only for their
+// MinSize() to learn how much height they'd ideally like — a Scroll's own
+// MinSize() is deliberately small (that's what lets it scroll), so asking
+// the scroll itself for its "wanted" height always returns a tiny number
+// and starves it of space even when the window has plenty of room.
 type verticalGuardLayout struct {
-	top, center, bottom fyne.CanvasObject
-	minTop, minBottom   float32
+	top, center, bottom       fyne.CanvasObject
+	topContent, bottomContent fyne.CanvasObject
+	minTop, minBottom         float32
 }
 
 func (l *verticalGuardLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
 	w := l.center.MinSize().Width
-	if tw := l.top.MinSize().Width; tw > w {
+	if tw := l.topContent.MinSize().Width; tw > w {
 		w = tw
 	}
-	if bw := l.bottom.MinSize().Width; bw > w {
+	if bw := l.bottomContent.MinSize().Width; bw > w {
 		w = bw
 	}
 	return fyne.NewSize(w, l.minTop+l.minBottom+l.center.MinSize().Height)
@@ -31,7 +40,7 @@ func (l *verticalGuardLayout) MinSize(_ []fyne.CanvasObject) fyne.Size {
 
 func (l *verticalGuardLayout) Layout(_ []fyne.CanvasObject, size fyne.Size) {
 	topH, centerH, bottomH := computeVerticalSplit(
-		size.Height, l.top.MinSize().Height, l.bottom.MinSize().Height, l.minTop, l.minBottom)
+		size.Height, l.topContent.MinSize().Height, l.bottomContent.MinSize().Height, l.minTop, l.minBottom)
 
 	l.top.Resize(fyne.NewSize(size.Width, topH))
 	l.top.Move(fyne.NewPos(0, 0))
