@@ -2,14 +2,11 @@ package main
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -27,22 +24,14 @@ const (
 )
 
 // tableContentWidth is the sum of every column's fixed width — used
-// elsewhere to enforce a window minimum width, since Table itself doesn't
-// factor column widths into its own MinSize (see build()'s minWidthSpacer).
+// elsewhere to size the window sensibly, since Table itself doesn't
+// factor column widths into its own MinSize.
 const tableContentWidth = 80 + 46 + 70 + 230 + 70 + 190
 
 func (rm *rcloneManager) buildTable() {
 	rm.table = widget.NewTable(
 		func() (int, int) { return len(rm.rows()), colCount },
-		func() fyne.CanvasObject {
-			// 배경 사각형(선택 시 강조색) + 실제 내용 두 겹으로 구성 —
-			// Fyne 기본 선택 하이라이트는 버튼처럼 자체 배경이 있는
-			// 위젯에 가려져 안 보일 수 있어서, 직접 그려서 확실히
-			// 보이게 한다.
-			bg := canvas.NewRectangle(color.Transparent)
-			content := container.NewStack()
-			return container.NewStack(bg, content)
-		},
+		func() fyne.CanvasObject { return container.NewStack() },
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			rm.updateTableCell(id, cell.(*fyne.Container))
 		},
@@ -66,8 +55,25 @@ func (rm *rcloneManager) buildTable() {
 	rm.table.SetColumnWidth(colActions, 190)
 
 	rm.table.OnSelected = func(id widget.TableCellID) {
+		// Fyne이 "선택된 셀"에 자체적으로 그리는 테두리(흰 줄처럼 보이던
+		// 것)를 바로 지운다 — 그 표시는 우리가 직접 굵은 글씨로 대신한다.
+		rm.table.Unselect(id)
 		rm.selectedRow = id.Row
-		rm.table.Refresh() // 이전 선택 배경을 지우고 새 선택 배경을 그리기 위함
+		rm.table.Refresh()
+	}
+}
+
+// clearSelection deselects whatever row is currently selected (if any)
+// and refreshes so the bold-text indicator disappears. Called when the
+// window is hidden/minimized to tray, or when a click lands outside the
+// table.
+func (rm *rcloneManager) clearSelection() {
+	if rm.selectedRow == -1 {
+		return
+	}
+	rm.selectedRow = -1
+	if rm.table != nil {
+		rm.table.Refresh()
 	}
 }
 
@@ -75,44 +81,32 @@ func (rm *rcloneManager) buildTable() {
 // which column a recycled template will be asked to render, so each
 // helper (cellCheck/cellLabel/cellActionButtons) replaces the cell's
 // content if it isn't already the right widget type.
-func (rm *rcloneManager) updateTableCell(id widget.TableCellID, cellWrap *fyne.Container) {
-	bg := cellWrap.Objects[0].(*canvas.Rectangle)
-	content := cellWrap.Objects[1].(*fyne.Container)
-
+func (rm *rcloneManager) updateTableCell(id widget.TableCellID, content *fyne.Container) {
 	rows := rm.rows()
-	// 버튼이 있는 액션 컬럼은 하이라이트에서 제외한다 — 버튼이 셀을
-	// 꽉 채우지 않아서, 그 틈으로 강조색이 얇은 선처럼 삐져나와 보이는
-	// 문제가 있었다.
-	if id.Row < len(rows) && id.Row == rm.selectedRow && id.Col != colActions {
-		bg.FillColor = theme.Color(theme.ColorNameSelection)
-	} else {
-		bg.FillColor = color.Transparent
-	}
-	bg.Refresh()
-
 	if id.Row >= len(rows) {
 		return
 	}
 	row := rows[id.Row]
+	selected := id.Row == rm.selectedRow
 
 	if id.Col == colKind {
-		rm.cellLabel(content).SetText(kindLabel(row.kind))
+		rm.setCellText(content, kindLabel(row.kind), selected)
 		return
 	}
 
 	if row.kind == rowKindRemote {
-		rm.updateRemoteRowCell(id.Col, content, row.remote)
+		rm.updateRemoteRowCell(id.Col, content, row.remote, selected)
 		return
 	}
-	rm.updateMountRowCell(id.Col, content, row.mount)
+	rm.updateMountRowCell(id.Col, content, row.mount, selected)
 }
 
-func (rm *rcloneManager) updateRemoteRowCell(col int, cell *fyne.Container, r engine.Remote) {
+func (rm *rcloneManager) updateRemoteRowCell(col int, cell *fyne.Container, r engine.Remote, selected bool) {
 	switch col {
 	case colAuto, colDrive, colStatus:
-		rm.cellLabel(cell).SetText("")
+		rm.setCellText(cell, "", selected)
 	case colRemote:
-		rm.cellLabel(cell).SetText(remoteDisplayText(r))
+		rm.setCellText(cell, remoteDisplayText(r), selected)
 	case colActions:
 		importBtn, middleBtn, delBtn := rm.cellActionButtons(cell)
 		importBtn.SetText("가져오기")
@@ -123,7 +117,7 @@ func (rm *rcloneManager) updateRemoteRowCell(col int, cell *fyne.Container, r en
 	}
 }
 
-func (rm *rcloneManager) updateMountRowCell(col int, cell *fyne.Container, m engine.Mount) {
+func (rm *rcloneManager) updateMountRowCell(col int, cell *fyne.Container, m engine.Mount, selected bool) {
 	switch col {
 	case colAuto:
 		check := rm.cellCheck(cell)
@@ -133,11 +127,11 @@ func (rm *rcloneManager) updateMountRowCell(col int, cell *fyne.Container, m eng
 			rm.saveMount(m)
 		}
 	case colDrive:
-		rm.cellLabel(cell).SetText(displayDrive(m.Drive))
+		rm.setCellText(cell, displayDrive(m.Drive), selected)
 	case colRemote:
-		rm.cellLabel(cell).SetText(fmt.Sprintf("%s:%s", m.Remote, m.RemotePath))
+		rm.setCellText(cell, fmt.Sprintf("%s:%s", m.Remote, m.RemotePath), selected)
 	case colStatus:
-		rm.cellLabel(cell).SetText(statusLabel(rm.isRunning(m.ID)))
+		rm.setCellText(cell, statusLabel(rm.isRunning(m.ID)), selected)
 	case colActions:
 		toggle, editBtn, delBtn := rm.cellActionButtons(cell)
 		running := rm.isRunning(m.ID)
@@ -177,6 +171,18 @@ func (rm *rcloneManager) cellLabel(cell *fyne.Container) *widget.Label {
 	l := widget.NewLabel("")
 	cell.Objects = []fyne.CanvasObject{l}
 	return l
+}
+
+// setCellText sets a label cell's text and — instead of any background
+// color, which either got hidden behind opaque widgets or clashed with
+// Fyne's own selection outline — bolds it when its row is selected.
+func (rm *rcloneManager) setCellText(cell *fyne.Container, text string, bold bool) {
+	label := rm.cellLabel(cell)
+	label.SetText(text)
+	if label.TextStyle.Bold != bold {
+		label.TextStyle.Bold = bold
+		label.Refresh()
+	}
 }
 
 // cellActionButtons returns a 3-button slot shared by both row kinds:

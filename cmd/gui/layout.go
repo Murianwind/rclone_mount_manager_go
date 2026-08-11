@@ -24,11 +24,11 @@ func (rm *rcloneManager) build() {
 	spacer.SetMinSize(fyne.NewSize(0, 16))
 
 	// Table의 MinSize()는 컬럼 폭 합계를 반영하지 않아서, 이게 없으면
-	// 창을 표 내용보다 좁게 줄일 수 있어 액션 컬럼이 잘려 보인다. 눈에는
-	// 안 보이지만 폭만 차지하는 사각형으로 창의 최소 너비를 강제한다.
-	// (Border의 최소 너비는 각 구역 중 최댓값이라 top 안에 둬도 안전하다 —
-	// 반면 높이는 top의 자식들 높이가 그대로 더해지므로 최소 높이는
-	// 아래에서 표와 함께 별도로 강제한다.)
+	// 기본 창 너비 계산이 표 내용보다 좁게 잡힌다. 눈에는 안 보이지만
+	// 폭만 차지하는 사각형으로 "창이 이 정도는 돼야 자연스럽다"는 크기
+	// 힌트를 준다. (주의: Fyne 창은 이 힌트를 초기 크기 계산에는 쓰지만,
+	// 사용자가 마우스로 드래그해 실제로 더 작게 줄이는 것까지 막아주진
+	// 않는다 — 이 버전엔 그런 강제 최소 크기 기능이 없다.)
 	minWidthSpacer := canvas.NewRectangle(color.Transparent)
 	minWidthSpacer.SetMinSize(fyne.NewSize(tableContentWidth+20, 0))
 
@@ -40,11 +40,6 @@ func (rm *rcloneManager) build() {
 		minWidthSpacer,
 	)
 
-	// 표 영역 자체의 최소 높이를 강제한다 — 이게 없으면 세로로 줄일 때
-	// 표가 거의 안 보이는 높이까지 눌린다. 표와 같은 자리에(Stack으로)
-	// 겹쳐둬서 top의 높이에는 더해지지 않고 표 영역에만 반영되게 한다.
-	// 저해상도 화면도 부담 없이 맞도록 값은 넉넉하지 않게(행 몇 개 볼
-	// 정도로만) 잡았다.
 	minTableHeight := canvas.NewRectangle(color.Transparent)
 	minTableHeight.SetMinSize(fyne.NewSize(0, 200))
 	tableArea := container.NewStack(minTableHeight, rm.table)
@@ -56,7 +51,13 @@ func (rm *rcloneManager) build() {
 	bottom := container.NewBorder(nil, nil, nil,
 		container.NewHBox(upBtn, downBtn, importBtn, addBtn))
 
-	rm.win.SetContent(container.NewBorder(top, bottom, nil, nil, tableArea))
+	content := container.NewBorder(top, bottom, nil, nil, tableArea)
+
+	// 표 바깥의 빈 공간(여백, 스페이서 자리 등)을 클릭하면 선택을
+	// 해제한다 — 실제 위젯(버튼/입력창/표 셀)이 있는 자리는 그 위젯이
+	// 클릭을 먼저 가져가므로 여기까지 안 온다.
+	background := newTapCatcher(func() { rm.clearSelection() })
+	rm.win.SetContent(container.NewStack(background, content))
 }
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
@@ -90,6 +91,7 @@ func (rm *rcloneManager) buildRclonePathRow() fyne.CanvasObject {
 			rm.refreshVersionLabel()
 		}, rm.win)
 		fd.Show()
+		fd.Resize(fyne.NewSize(700, 460)) // Show() 이후에 불러야 안전함 (이전엔 순서가 반대라 크래시 원인이었음)
 	})
 
 	rm.rcPathEntry.OnSubmitted = func(s string) {

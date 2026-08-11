@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fyne.io/fyne/v2/widget"
-
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
@@ -97,5 +95,4 @@ func (rm *rcloneManager) moveSelected(
 
 	rm.selectedRow += delta
 	rm.persist()
-	rm.table.Select(widget.TableCellID{Row: rm.selectedRow, Col: colKind})
 }

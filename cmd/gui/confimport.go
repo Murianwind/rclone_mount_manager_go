@@ -39,6 +39,7 @@ func (rm *rcloneManager) showConfImportDialog() {
 		}
 	}
 	fd.Show()
+	fd.Resize(fyne.NewSize(700, 460)) // Show() 이후에 불러야 안전함
 }
 
 // showRemoteSelectDialog는 파싱된 리모트 후보 목록을 체크박스로 보여주고,
