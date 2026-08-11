@@ -28,7 +28,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.1.1"
+const appVersion = "0.0.7"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // 컬럼 합(약 686px) + 창 여백/스크롤바를 감안해 기본 창 너비에 여유를 둔다 —
@@ -51,6 +51,16 @@ func main() {
 
 	rm := newRcloneManager(appDir, log, win)
 	rm.logf("INFO", "[시작] RcloneManager v%s 시작됨", appVersion)
+
+	// 등록된 시작프로그램 경로가 지금 실행 중인 exe와 다르면(구버전에서
+	// 옮겨왔거나 폴더를 이동한 경우 등) 조용히 재등록한다 — 체크박스는
+	// "등록됨"으로 보이는데 실제로는 존재하지 않는/옛날 경로를 가리키는
+	// 상태로 방치되는 걸 막기 위함.
+	if fixed, err := engine.CheckAndFixStartup(); err != nil {
+		rm.logf("WARN", "[시작프로그램] 경로 재등록 확인 실패: %v", err)
+	} else if fixed {
+		rm.logf("INFO", "[시작프로그램] 등록된 경로가 실행 파일과 달라 재등록함")
+	}
 
 	cfg, err := rm.store.Load()
 	if err != nil {
