@@ -33,7 +33,12 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 // with what was actually mounted).
 func (rm *rcloneManager) buildTrayMenu() *fyne.Menu {
 	items := []*fyne.MenuItem{
-		fyne.NewMenuItem("🪟 열기", func() { fyne.Do(func() { rm.win.Show() }) }),
+		fyne.NewMenuItem("🪟 열기", func() {
+			fyne.Do(func() {
+				rm.win.Show()
+				rm.refreshVersionLabel() // Python 버전의 on-focus 재확인에 대응
+			})
+		}),
 		fyne.NewMenuItemSeparator(),
 	}
 
