@@ -7,10 +7,13 @@ import (
 )
 
 // minWindowHeight is the smallest height the window is allowed to settle
-// at — enough for the header/path/checkbox rows, the table header + a
-// couple of rows, and the bottom button bar without any of them being
-// hidden or overlapping.
-const minWindowHeight = 340
+// at. This has to be tall enough not just for the main list view, but for
+// the tallest dialog we show (the 마운트 추가/편집 form, ~460px) — Fyne
+// clamps a dialog's size down to fit inside its parent window, so if the
+// window itself were allowed to be shorter than a dialog needs, the
+// dialog's own content would get squeezed and its buttons would overlap
+// the last field, which is exactly what happened at the old 340px floor.
+const minWindowHeight = 520
 
 // enforceMinWindowSize keeps the window from staying smaller than
 // tableContentWidth+20 × minWindowHeight.
