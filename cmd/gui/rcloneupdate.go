@@ -8,6 +8,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
@@ -125,16 +126,32 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 	}
 
 	go func() {
+		var progress *dialog.CustomDialog
+
 		if len(remountAfter) > 0 {
-			fyne.Do(func() { rm.rcVersionText.SetText("마운트 해제 중...") })
+			fyne.Do(func() {
+				rm.revealWindow()
+				progress = dialog.NewCustomWithoutButtons("rclone 업데이트 중",
+					widget.NewLabel("마운트 해제 중..."), rm.win)
+				progress.Show()
+			})
 			rm.unmountAllAndWait()
+			fyne.Do(func() { progress.Hide() })
 		}
-		fyne.Do(func() { rm.rcVersionText.SetText("다운로드 중...") })
+
+		fyne.Do(func() {
+			rm.revealWindow()
+			progress = dialog.NewCustomWithoutButtons("rclone 업데이트 중",
+				widget.NewLabel(fmt.Sprintf("rclone v%s 다운로드 중...", version)), rm.win)
+			progress.Show()
+			rm.rcVersionText.SetText("다운로드 중...")
+		})
 
 		status, err := engine.DownloadRclone(nil, destDir, version)
 		if err != nil {
 			rm.logf("ERROR", "[rclone] 다운로드 실패: %v", err)
 			fyne.Do(func() {
+				progress.Hide()
 				rm.revealWindow()
 				dialog.ShowError(err, rm.win)
 				rm.refreshVersionLabel()
@@ -147,6 +164,7 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 			newPath := filepath.Join(destDir, "rclone.exe")
 			rm.logf("INFO", "[rclone] v%s 설치 완료: %s", version, newPath)
 			fyne.Do(func() {
+				progress.Hide()
 				rm.cfg.RclonePath = newPath
 				rm.rcPathEntry.SetText(newPath)
 				rm.persist()
@@ -160,6 +178,7 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 		case engine.DownloadStatusManual:
 			rm.logf("WARN", "[rclone] 실행 중 파일 잠김 — rclone_new.exe로 저장, 수동 교체 필요")
 			fyne.Do(func() {
+				progress.Hide()
 				rm.refreshVersionLabel()
 				rm.revealWindow()
 				dialog.ShowInformation("수동 교체 필요",

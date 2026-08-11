@@ -30,7 +30,8 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 			cacheDirEntry.SetText(path)
 		})
 	})
-	cacheModeSelect := widget.NewSelect([]string{"", "off", "minimal", "writes", "full"}, nil)
+	cacheModeSelect := widget.NewSelect([]string{"off", "minimal", "writes", "full"}, nil)
+	cacheModeSelect.PlaceHolder = "(선택 안 함)"
 	extraFlagsEntry := widget.NewMultiLineEntry()
 	extraFlagsEntry.SetPlaceHolder("--flag=value;--flag2 value2")
 	extraFlagsEntry.Wrapping = fyne.TextWrapWord
