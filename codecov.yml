@@ -53,6 +53,7 @@ component_management:
           target: 55%
         - type: patch
           target: 55%
+          informational: true
 
 comment:
   layout: "header, diff, flags, components"
