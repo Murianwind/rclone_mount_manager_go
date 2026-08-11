@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
@@ -39,7 +41,16 @@ var columnHeaderLabels = [colCount]string{"구분", "자동", "드라이브", "�
 func (rm *rcloneManager) buildTable() {
 	rm.table = widget.NewTable(
 		func() (int, int) { return len(rm.rows()), colCount },
-		func() fyne.CanvasObject { return container.NewStack() },
+		func() fyne.CanvasObject {
+			// Table은 이 함수가 만든 "빈 템플릿"의 MinSize()로 기본 행
+			// 높이를 스스로 결정한다(templateSize()). 빈 Stack만 반환하면
+			// 그 크기가 0이 되어 모든 행이 높이 0으로 겹쳐 그려진다 — 실제
+			// 내용은 UpdateCell에서 바로 이 자리를 교체하므로, 여기서는
+			// "적당한 높이가 있다"는 것만 알려주면 된다.
+			placeholder := canvas.NewRectangle(color.Transparent)
+			placeholder.SetMinSize(fyne.NewSize(0, 34))
+			return container.NewStack(placeholder)
+		},
 		func(id widget.TableCellID, cell fyne.CanvasObject) {
 			rm.updateTableCell(id, cell.(*fyne.Container))
 		},
