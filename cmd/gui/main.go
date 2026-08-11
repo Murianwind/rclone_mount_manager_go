@@ -70,6 +70,8 @@ func main() {
 	win.SetCloseIntercept(func() {
 		fyne.Do(func() {
 			rm.saveWindowSize()
+			rm.selectedRow = -1
+			rm.table.Refresh()
 			win.Hide() // minimize to tray instead of quitting
 		})
 	})
