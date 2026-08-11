@@ -28,7 +28,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "0.0.8"
+const appVersion = "0.0.7"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // 컬럼 합(약 686px) + 창 여백/스크롤바를 감안해 기본 창 너비에 여유를 둔다 —
@@ -70,7 +70,6 @@ func main() {
 	win.SetCloseIntercept(func() {
 		fyne.Do(func() {
 			rm.saveWindowSize()
-			rm.clearSelection()
 			win.Hide() // minimize to tray instead of quitting
 		})
 	})

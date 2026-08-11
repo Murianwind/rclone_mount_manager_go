@@ -57,9 +57,19 @@ func (rm *rcloneManager) buildTable() {
 		// Fyne이 "선택된 셀"에 자체적으로 그리는 테두리(흰 줄처럼 보이던
 		// 것)를 바로 지운다 — 그 표시는 우리가 직접 굵은 글씨로 대신한다.
 		rm.table.Unselect(id)
-		rm.selectedRow = id.Row
+		rm.selectedRow = toggleSelection(rm.selectedRow, id.Row)
 		rm.table.Refresh()
 	}
+}
+
+// toggleSelection decides the next selectedRow value: clicking the
+// already-selected row deselects it (-1); clicking any other row selects
+// that one instead.
+func toggleSelection(current, clicked int) int {
+	if current == clicked {
+		return -1
+	}
+	return clicked
 }
 
 // buildTableHeader is our own header row, column-width-matched to the
@@ -71,20 +81,6 @@ func buildTableHeader() fyne.CanvasObject {
 		cells[col] = container.New(layout.NewGridWrapLayout(fyne.NewSize(columnWidths[col], label.MinSize().Height)), label)
 	}
 	return container.NewHBox(cells...)
-}
-
-// clearSelection deselects whatever row is currently selected (if any)
-// and refreshes so the bold-text indicator disappears. Called when the
-// window is hidden/minimized to tray, or when a click lands outside the
-// table.
-func (rm *rcloneManager) clearSelection() {
-	if rm.selectedRow == -1 {
-		return
-	}
-	rm.selectedRow = -1
-	if rm.table != nil {
-		rm.table.Refresh()
-	}
 }
 
 // updateTableCell fills in one cell. CreateCell can't know in advance

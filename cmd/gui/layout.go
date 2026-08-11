@@ -67,11 +67,7 @@ func (rm *rcloneManager) build() {
 		minTop: 32, minBottom: 32,
 	}, topScroll, tableArea, bottomScroll)
 
-	// 표 바깥의 빈 공간(여백, 스페이서 자리 등)을 클릭하면 선택을
-	// 해제한다 — 실제 위젯(버튼/입력창/표 셀)이 있는 자리는 그 위젯이
-	// 클릭을 먼저 가져가므로 여기까지 안 온다.
-	background := newTapCatcher(func() { rm.clearSelection() })
-	rm.win.SetContent(container.NewStack(background, root))
+	rm.win.SetContent(root)
 }
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
