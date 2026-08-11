@@ -26,13 +26,11 @@ func (rm *rcloneManager) build() {
 	// Table의 MinSize()는 컬럼 폭 합계를 반영하지 않아서, 이게 없으면
 	// 기본 창 너비 계산이 표 내용보다 좁게 잡힌다. 눈에는 안 보이지만
 	// 폭만 차지하는 사각형으로 "창이 이 정도는 돼야 자연스럽다"는 크기
-	// 힌트를 준다. (주의: Fyne 창은 이 힌트를 초기 크기 계산에는 쓰지만,
-	// 사용자가 마우스로 드래그해 실제로 더 작게 줄이는 것까지 막아주진
-	// 않는다 — 이 버전엔 그런 강제 최소 크기 기능이 없다.)
+	// 힌트를 준다.
 	minWidthSpacer := canvas.NewRectangle(color.Transparent)
 	minWidthSpacer.SetMinSize(fyne.NewSize(tableContentWidth+20, 0))
 
-	top := container.NewVBox(
+	topContent := container.NewVBox(
 		rm.buildHeaderRow(),
 		rm.buildRclonePathRow(),
 		rm.buildStartupOptionsRow(),
@@ -40,24 +38,32 @@ func (rm *rcloneManager) build() {
 		minWidthSpacer,
 	)
 
-	minTableHeight := canvas.NewRectangle(color.Transparent)
-	minTableHeight.SetMinSize(fyne.NewSize(0, 200))
-	tableArea := container.NewStack(minTableHeight, rm.table)
-
 	addBtn := widget.NewButtonWithIcon("추가", nil, func() { rm.showMountDialog(nil, "") })
 	upBtn := widget.NewButton("🔼", func() { rm.moveSelectedUp() })
 	downBtn := widget.NewButton("🔽", func() { rm.moveSelectedDown() })
 	importBtn := widget.NewButtonWithIcon("conf 가져오기", nil, func() { rm.showConfImportDialog() })
-	bottom := container.NewBorder(nil, nil, nil,
+	bottomContent := container.NewBorder(nil, nil, nil,
 		container.NewHBox(upBtn, downBtn, importBtn, addBtn))
 
-	content := container.NewBorder(top, bottom, nil, nil, tableArea)
+	// 세로 공간이 부족해지면 상단/하단이 먼저 스크롤로 양보하고 표는
+	// 항상 최소 높이를 확보하도록, 일반 Border 대신 직접 만든 레이아웃을
+	// 쓴다 (layout.Border는 상단/하단에 항상 원래 필요한 높이를 그대로
+	// 주고 표엔 "남는 만큼"만 줘서, 창을 줄이면 표가 음수 높이까지
+	// 찌그러졌었다). Scroll로 감싸야 실제로 줄어든 크기에서도 내용끼리
+	// 겹치지 않고 스크롤로 흡수된다.
+	topScroll := container.NewVScroll(topContent)
+	bottomScroll := container.NewVScroll(bottomContent)
+
+	root := container.New(&verticalGuardLayout{
+		top: topScroll, center: rm.table, bottom: bottomScroll,
+		minTop: 32, minBottom: 32,
+	}, topScroll, rm.table, bottomScroll)
 
 	// 표 바깥의 빈 공간(여백, 스페이서 자리 등)을 클릭하면 선택을
 	// 해제한다 — 실제 위젯(버튼/입력창/표 셀)이 있는 자리는 그 위젯이
 	// 클릭을 먼저 가져가므로 여기까지 안 온다.
 	background := newTapCatcher(func() { rm.clearSelection() })
-	rm.win.SetContent(container.NewStack(background, content))
+	rm.win.SetContent(container.NewStack(background, root))
 }
 
 func (rm *rcloneManager) buildHeaderRow() fyne.CanvasObject {
