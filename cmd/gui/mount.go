@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os/exec"
 	"strings"
 	"sync"
@@ -153,6 +154,32 @@ func (rm *rcloneManager) quitGracefully() {
 	go func() {
 		rm.unmountAllAndWait()
 		fyne.Do(func() { fyne.CurrentApp().Quit() })
+	}()
+}
+
+// testMountConnection runs `rclone lsf <remote>:<path> --max-depth 1` to
+// verify the remote/path is actually reachable, before the user commits
+// to saving the mount. Mirrors the Python version's MountDialog._test().
+func (rm *rcloneManager) testMountConnection(remote, path string) {
+	exe, ok := rm.rcloneExePath()
+	if !ok {
+		dialog.ShowInformation("알림", "rclone 경로가 등록되어 있지 않습니다.", rm.win)
+		return
+	}
+	target := remote + ":" + strings.Trim(path, "/")
+
+	go func() {
+		cmd := exec.Command(exe, "lsf", target, "--max-depth", "1")
+		engine.ConfigureBackgroundProcess(cmd)
+		out, err := cmd.CombinedOutput()
+		fyne.Do(func() {
+			if err == nil {
+				dialog.ShowInformation("성공", "연결 확인 완료!", rm.win)
+				return
+			}
+			rm.logf("ERROR", "[연결 테스트] %s 실패: %v", target, err)
+			dialog.ShowInformation("연결 실패", fmt.Sprintf("연결 불가:\n%s", strings.TrimSpace(string(out))), rm.win)
+		})
 	}()
 }
 

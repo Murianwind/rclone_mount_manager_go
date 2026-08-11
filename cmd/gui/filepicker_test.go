@@ -69,3 +69,30 @@ func TestDirExists(t *testing.T) {
 		}
 	})
 }
+
+func TestDirsOnly(t *testing.T) {
+	Scenario(t, "GIVEN 폴더와 파일이 섞인 목록 WHEN 폴더만 걸러냄 THEN 폴더만 남는다", func(t *testing.T) {
+		entries := []fileEntry{
+			{name: "photos", isDir: true},
+			{name: "readme.txt", isDir: false},
+			{name: "docs", isDir: true},
+		}
+		got := dirsOnly(entries)
+		if len(got) != 2 {
+			t.Fatalf("길이 = %d, 기대값 2 (%+v)", len(got), got)
+		}
+		for _, e := range got {
+			if !e.isDir {
+				t.Errorf("파일이 섞여 들어옴: %+v", e)
+			}
+		}
+	})
+
+	// 부정 케이스: 폴더가 하나도 없는 디렉터리.
+	Scenario(t, "GIVEN 폴더가 하나도 없음 WHEN 폴더만 걸러냄 THEN 빈 목록을 반환한다 (부정 케이스)", func(t *testing.T) {
+		entries := []fileEntry{{name: "a.txt", isDir: false}}
+		if got := dirsOnly(entries); len(got) != 0 {
+			t.Errorf("빈 목록을 기대했는데 %+v", got)
+		}
+	})
+}

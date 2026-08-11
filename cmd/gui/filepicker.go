@@ -77,6 +77,73 @@ func (rm *rcloneManager) showFilePicker(title, startDir string, onSelected func(
 	}, rm.win)
 }
 
+// showDirPicker is showFilePicker's directory-only counterpart: clicking a
+// folder navigates into it (same as showFilePicker), but confirming picks
+// whatever directory is currently open rather than requiring a file
+// click. Used for 캐시 디렉토리, where a folder itself is the answer.
+func (rm *rcloneManager) showDirPicker(title, startDir string, onSelected func(path string)) {
+	if startDir == "" || !dirExists(startDir) {
+		if home, err := os.UserHomeDir(); err == nil {
+			startDir = home
+		}
+	}
+	currentDir := startDir
+
+	var entries []fileEntry
+	var list *widget.List
+
+	pathLabel := widget.NewLabel(currentDir)
+	pathLabel.Wrapping = fyne.TextWrapBreak
+
+	refresh := func() {
+		entries = dirsOnly(listDir(currentDir))
+		pathLabel.SetText(currentDir)
+		list.UnselectAll()
+		list.Refresh()
+	}
+
+	list = widget.NewList(
+		func() int { return len(entries) + 1 }, // +1 for ".." (parent dir)
+		func() fyne.CanvasObject { return widget.NewLabel("") },
+		func(id widget.ListItemID, o fyne.CanvasObject) {
+			label := o.(*widget.Label)
+			label.SetText(fileEntryLabel(id, entries))
+		},
+	)
+	list.OnSelected = func(id widget.ListItemID) {
+		if id == 0 {
+			currentDir = filepath.Dir(currentDir)
+		} else {
+			currentDir = filepath.Join(currentDir, entries[id-1].name)
+		}
+		refresh()
+	}
+
+	refresh()
+
+	scroll := container.NewVScroll(list)
+	scroll.SetMinSize(fyne.NewSize(480, 320))
+	content := container.NewBorder(pathLabel, nil, nil, nil, scroll)
+
+	dialog.ShowCustomConfirm(title, "이 폴더 선택", "취소", content, func(ok bool) {
+		if ok {
+			onSelected(currentDir)
+		}
+	}, rm.win)
+}
+
+// dirsOnly filters a listDir() result down to directories — showDirPicker
+// has no use for files. Pure function for testing.
+func dirsOnly(entries []fileEntry) []fileEntry {
+	dirs := make([]fileEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.isDir {
+			dirs = append(dirs, e)
+		}
+	}
+	return dirs
+}
+
 type fileEntry struct {
 	name  string
 	isDir bool

@@ -7,6 +7,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
@@ -24,6 +25,11 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 	driveEntry.SetPlaceHolder("예: Z: (비우면 자동)")
 	cacheDirEntry := widget.NewEntry()
 	wrapEntry(cacheDirEntry) // 캐시 디렉토리 경로도 길어질 수 있음
+	cacheBrowseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		rm.showDirPicker("캐시 디렉토리 선택", strings.TrimSpace(cacheDirEntry.Text), func(path string) {
+			cacheDirEntry.SetText(path)
+		})
+	})
 	cacheModeSelect := widget.NewSelect([]string{"", "off", "minimal", "writes", "full"}, nil)
 	extraFlagsEntry := widget.NewMultiLineEntry()
 	extraFlagsEntry.SetPlaceHolder("--flag=value;--flag2 value2")
@@ -40,13 +46,18 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 		remoteEntry.SetText(prefillRemote)
 	}
 
+	testBtn := widget.NewButton("연결 테스트", func() {
+		rm.testMountConnection(strings.TrimSpace(remoteEntry.Text), strings.TrimSpace(pathEntry.Text))
+	})
+
 	form := dialog.NewForm(
 		mountDialogTitle(existing != nil), "저장", "취소",
 		[]*widget.FormItem{
 			widget.NewFormItem("리모트 이름", remoteEntry),
 			widget.NewFormItem("서브 디렉토리", pathEntry),
+			widget.NewFormItem("", testBtn),
 			widget.NewFormItem("드라이브 문자", driveEntry),
-			widget.NewFormItem("캐시 디렉토리", cacheDirEntry),
+			widget.NewFormItem("캐시 디렉토리", container.NewBorder(nil, nil, nil, cacheBrowseBtn, cacheDirEntry)),
 			widget.NewFormItem("캐시 모드", cacheModeSelect),
 			widget.NewFormItem("추가 플래그", extraFlagsEntry),
 		},
@@ -69,11 +80,16 @@ func (rm *rcloneManager) showMountDialog(existing *engine.Mount, prefillRemote s
 				ExtraFlags: engine.NormalizeFlags(extraFlagsEntry.Text),
 				AutoMount:  existing != nil && existing.AutoMount,
 			}
+
+			if msg := validateMount(m, rm.cfg.Mounts); msg != "" {
+				dialog.ShowInformation("알림", msg, rm.win)
+				return
+			}
 			rm.saveMount(m)
 		},
 		rm.win,
 	)
-	form.Resize(fyne.NewSize(440, 420))
+	form.Resize(fyne.NewSize(440, 460))
 	form.Show()
 }
 
