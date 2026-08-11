@@ -45,6 +45,13 @@ func (rm *rcloneManager) build() {
 	bottomContent := container.NewBorder(nil, nil, nil,
 		container.NewHBox(upBtn, downBtn, importBtn, addBtn))
 
+	// Table 내장 헤더 대신 직접 만든 헤더(buildTableHeader)를 표 위에
+	// 놓고, 그 사이에 실제 여백을 둔다.
+	headerGap := canvas.NewRectangle(color.Transparent)
+	headerGap.SetMinSize(fyne.NewSize(0, 8))
+	tableHeader := container.NewVBox(buildTableHeader(), headerGap)
+	tableArea := container.NewBorder(tableHeader, nil, nil, nil, rm.table)
+
 	// 세로 공간이 부족해지면 상단/하단이 먼저 스크롤로 양보하고 표는
 	// 항상 최소 높이를 확보하도록, 일반 Border 대신 직접 만든 레이아웃을
 	// 쓴다 (layout.Border는 상단/하단에 항상 원래 필요한 높이를 그대로
@@ -55,10 +62,10 @@ func (rm *rcloneManager) build() {
 	bottomScroll := container.NewVScroll(bottomContent)
 
 	root := container.New(&verticalGuardLayout{
-		top: topScroll, center: rm.table, bottom: bottomScroll,
+		top: topScroll, center: tableArea, bottom: bottomScroll,
 		topContent: topContent, bottomContent: bottomContent,
 		minTop: 32, minBottom: 32,
-	}, topScroll, rm.table, bottomScroll)
+	}, topScroll, tableArea, bottomScroll)
 
 	// 표 바깥의 빈 공간(여백, 스페이서 자리 등)을 클릭하면 선택을
 	// 해제한다 — 실제 위젯(버튼/입력창/표 셀)이 있는 자리는 그 위젯이

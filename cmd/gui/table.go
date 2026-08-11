@@ -28,6 +28,14 @@ const (
 // factor column widths into its own MinSize.
 const tableContentWidth = 80 + 46 + 70 + 230 + 70 + 190
 
+// columnWidths holds each column's fixed pixel width, indexed by the col*
+// constants — shared by buildTable (SetColumnWidth) and buildTableHeader
+// (matching fixed-width labels), so the two never drift out of sync.
+var columnWidths = [colCount]float32{80, 46, 70, 230, 70, 190}
+
+// columnHeaderLabels are the column titles, indexed the same way.
+var columnHeaderLabels = [colCount]string{"구분", "자동", "드라이브", "리모트(서브경로)", "상태", ""}
+
 func (rm *rcloneManager) buildTable() {
 	rm.table = widget.NewTable(
 		func() (int, int) { return len(rm.rows()), colCount },
@@ -36,23 +44,14 @@ func (rm *rcloneManager) buildTable() {
 			rm.updateTableCell(id, cell.(*fyne.Container))
 		},
 	)
-	rm.table.ShowHeaderRow = true
+	// Table의 내장 헤더(ShowHeaderRow)는 본문과 간격 없이 항상 딱
+	// 붙어버려서(HideSeparators를 켜든 꺼든 마찬가지) 안 쓴다 — 대신
+	// buildTableHeader()로 직접 만든 헤더를 표 위에 별도로 놓고, 그
+	// 사이에 우리가 원하는 만큼 여백을 둔다.
 	rm.table.HideSeparators = true
-	rm.table.CreateHeader = func() fyne.CanvasObject {
-		return widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	for col, w := range columnWidths {
+		rm.table.SetColumnWidth(col, w)
 	}
-	rm.table.UpdateHeader = func(id widget.TableCellID, o fyne.CanvasObject) {
-		headers := [colCount]string{"구분", "자동", "드라이브", "리모트(서브경로)", "상태", ""}
-		o.(*widget.Label).SetText(headers[id.Col])
-	}
-	// 창 여백/스크롤바가 차지하는 폭을 감안해 컬럼 합이 기본 창 너비보다
-	// 조금 작게 잡았다 — 딱 맞춰두면 창 테두리에 마지막 컬럼이 잘려 보인다.
-	rm.table.SetColumnWidth(colKind, 80)
-	rm.table.SetColumnWidth(colAuto, 46)
-	rm.table.SetColumnWidth(colDrive, 70)
-	rm.table.SetColumnWidth(colRemote, 230)
-	rm.table.SetColumnWidth(colStatus, 70)
-	rm.table.SetColumnWidth(colActions, 190)
 
 	rm.table.OnSelected = func(id widget.TableCellID) {
 		// Fyne이 "선택된 셀"에 자체적으로 그리는 테두리(흰 줄처럼 보이던
@@ -61,6 +60,17 @@ func (rm *rcloneManager) buildTable() {
 		rm.selectedRow = id.Row
 		rm.table.Refresh()
 	}
+}
+
+// buildTableHeader is our own header row, column-width-matched to the
+// table below it, with a real visible gap between the two (see build()).
+func buildTableHeader() fyne.CanvasObject {
+	cells := make([]fyne.CanvasObject, colCount)
+	for col, title := range columnHeaderLabels {
+		label := widget.NewLabelWithStyle(title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+		cells[col] = container.New(layout.NewGridWrapLayout(fyne.NewSize(columnWidths[col], label.MinSize().Height)), label)
+	}
+	return container.NewHBox(cells...)
 }
 
 // clearSelection deselects whatever row is currently selected (if any)
