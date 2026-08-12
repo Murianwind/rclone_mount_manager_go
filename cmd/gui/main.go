@@ -25,7 +25,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
 
-	"github.com/murianwind/rclone-manager-go/internal/engine"
+	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
 const appVersion = "1.0.1"
@@ -53,10 +53,6 @@ func main() {
 	rm := newRcloneManager(appDir, log, win)
 	rm.logf("INFO", "[시작] RcloneManager v%s 시작됨", appVersion)
 
-	// 등록된 시작프로그램 경로가 지금 실행 중인 exe와 다르면(구버전에서
-	// 옮겨왔거나 폴더를 이동한 경우 등) 조용히 재등록한다 — 체크박스는
-	// "등록됨"으로 보이는데 실제로는 존재하지 않는/옛날 경로를 가리키는
-	// 상태로 방치되는 걸 막기 위함.
 	if fixed, err := engine.CheckAndFixStartup(); err != nil {
 		rm.logf("WARN", "[시작프로그램] 경로 재등록 확인 실패: %v", err)
 	} else if fixed {
@@ -76,6 +72,7 @@ func main() {
 	rm.build()
 	rm.setupTray(fyneApp)
 	rm.refreshVersionLabel()
+	rm.startNetworkMonitor()
 	enforceMinWindowSize(win)
 
 	win.SetCloseIntercept(func() {
@@ -83,25 +80,16 @@ func main() {
 			rm.saveWindowSize()
 			rm.selectedRow = -1
 			rm.table.Refresh()
-			win.Hide() // minimize to tray instead of quitting
+			win.Hide()
 		})
 	})
 
-	// Auto-mount is initiated by startNetworkMonitor's first connectivity
-	// check. Starting the monitor here would race with the app-started hook,
-	// so start it only after the Fyne event loop is live.
-	// The monitor treats its first successful connectivity check as the
-	// initial transition and therefore performs exactly one auto-mount pass.
 	fyneApp.Lifecycle().SetOnStarted(func() {
-		rm.startNetworkMonitor()
 		rm.checkForUpdate(false)
 		rm.checkRcloneUpdate(false)
 	})
 
 	if rm.cfg.StartMinimized {
-		// Deliberately skip win.Show(): ShowAndRun() would force it open
-		// regardless. The tray icon (already wired in setupTray) keeps the
-		// app reachable.
 		fyneApp.Run()
 	} else {
 		win.Show()
@@ -109,9 +97,6 @@ func main() {
 	}
 }
 
-// mustAppDir returns the directory the running executable lives in — the
-// Go equivalent of the Python version's APP_DIR. mounts.json, rclone.exe,
-// and the log file all live here.
 func mustAppDir() string {
 	exe, err := os.Executable()
 	if err != nil {
@@ -120,9 +105,6 @@ func mustAppDir() string {
 	return filepath.Dir(exe)
 }
 
-// savedOr returns saved if it's a usable positive size, else fallback.
-// Pulled out as a pure function so the "0 means unset" rule is testable
-// without a running Fyne window.
 func savedOr(saved, fallback float32) float32 {
 	if saved > 0 {
 		return saved
