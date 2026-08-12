@@ -9,6 +9,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var (
+	kernel32            = windows.NewLazySystemDLL("kernel32.dll")
+	procAttachConsole   = kernel32.NewProc("AttachConsole")
+	procFreeConsole     = kernel32.NewProc("FreeConsole")
+)
+
 // ConfigureBackgroundProcess hides the console window while giving the child
 // its own console and process group. GenerateConsoleCtrlEvent can only deliver
 // CTRL_BREAK to a process group that shares the caller's console; a -H=windowsgui
@@ -19,6 +25,21 @@ func ConfigureBackgroundProcess(cmd *exec.Cmd) {
 		HideWindow:    true,
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NEW_CONSOLE,
 	}
+}
+
+// attachConsole attaches the current process to the console owned by pid.
+// x/sys/windows v0.30.0 does not expose AttachConsole/FreeConsole as package
+// functions, so call the stable kernel32 exports directly.
+func attachConsole(pid uint32) error {
+	r1, _, e1 := procAttachConsole.Call(uintptr(pid))
+	if r1 == 0 {
+		return e1
+	}
+	return nil
+}
+
+func freeConsole() {
+	_, _, _ = procFreeConsole.Call()
 }
 
 // SignalGracefulStop asks a rclone process to shut down cleanly by sending
@@ -32,10 +53,10 @@ func SignalGracefulStop(pid int) error {
 	}
 	firstErr := err
 
-	if attachErr := windows.AttachConsole(uint32(pid)); attachErr != nil {
+	if attachErr := attachConsole(uint32(pid)); attachErr != nil {
 		return firstErr
 	}
-	defer windows.FreeConsole()
+	defer freeConsole()
 
 	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid))
 }
