@@ -25,7 +25,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/dialog"
 
-	"github.com/Murianwind/rclone-manager-go/internal/engine"
+	"github.com/murianwind/rclone-manager-go/internal/engine"
 )
 
 const appVersion = "1.0.1"
@@ -76,7 +76,6 @@ func main() {
 	rm.build()
 	rm.setupTray(fyneApp)
 	rm.refreshVersionLabel()
-	rm.startNetworkMonitor()
 	enforceMinWindowSize(win)
 
 	win.SetCloseIntercept(func() {
@@ -88,11 +87,13 @@ func main() {
 		})
 	})
 
-	// Auto-mount and the update check both need the event loop actually
-	// running (dialogs/UI updates aren't safe before that), so they're
-	// wired to the "app started" hook rather than called directly here.
+	// Auto-mount is initiated by startNetworkMonitor's first connectivity
+	// check. Starting the monitor here would race with the app-started hook,
+	// so start it only after the Fyne event loop is live.
+	// The monitor treats its first successful connectivity check as the
+	// initial transition and therefore performs exactly one auto-mount pass.
 	fyneApp.Lifecycle().SetOnStarted(func() {
-		rm.autoMountAll()
+		rm.startNetworkMonitor()
 		rm.checkForUpdate(false)
 		rm.checkRcloneUpdate(false)
 	})
