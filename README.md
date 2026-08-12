@@ -4,7 +4,7 @@ Windows용 rclone 마운트 관리 트레이 앱입니다. rclone 리모트를 �
 
 [![CI](https://github.com/Murianwind/rclone_mount_manager_go/actions/workflows/ci.yml/badge.svg)](https://github.com/Murianwind/rclone_mount_manager_go/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/Murianwind/rclone_mount_manager_go/graph/badge.svg)](https://codecov.io/gh/Murianwind/rclone_mount_manager_go)
-[![Latest Release](https://img.shields.io/github/v/release/Murianwind/rclone_mount_manager_go?include_prereleases)](https://github.com/Murianwind/rclone_mount_manager_go/releases)
+[![Latest Release](https://img.shields.io/github/v/release/Murianwind/rclone_mount_manager_go)](https://github.com/Murianwind/rclone_mount_manager_go/releases)
 
 ## 이런 분께 필요합니다
 
@@ -19,16 +19,20 @@ Windows용 rclone 마운트 관리 트레이 앱입니다. rclone 리모트를 �
 3. [WinFsp](https://winfsp.dev/)가 설치돼 있지 않다면 먼저 설치해 주세요 — rclone이 클라우드 저장소를 실제 드라이브처럼 보이게 하는 데 필요한 드라이버입니다.
 4. rclone 실행 파일이 없다면, 프로그램 상단의 rclone 버전 표시를 클릭하면 자동으로 다운로드/설치할 수 있습니다.
 
+> **기존 Python 버전(RcloneManager) 사용자이신가요?** 설정 파일(`mounts.json`) 형식이 완전히 동일해서 변환 없이 그대로 이어집니다. 기존 프로그램을 종료(마운트가 안전하게 해제됩니다)한 뒤, 같은 폴더에 이 프로그램을 받아 실행하시면 기존 마운트/리모트 목록이 그대로 나타납니다.
+
 ## 사용법
 
 **처음 설정할 때**
 1. 이미 rclone을 쓰고 계셨다면(`rclone.conf`가 있다면), **conf 가져오기** 버튼으로 기존 리모트 목록을 한 번에 불러올 수 있습니다.
-2. 불러온 리모트 옆의 **가져오기** 버튼을 누르면 마운트 설정 추가 화면이 뜹니다 — 드라이브 문자, 캐시 옵션 등을 정하고 저장하세요.
+2. 불러온 리모트 옆의 **가져오기** 버튼을 누르면 마운트 설정 추가 화면이 뜹니다 — 드라이브 문자, 캐시 옵션 등을 정하고 저장하세요. 저장 전에 **연결 테스트** 버튼으로 해당 리모트/경로가 실제로 접속되는지 미리 확인할 수 있습니다.
 3. 리모트가 없다면 **추가** 버튼으로 직접 새 마운트를 등록할 수 있습니다.
+4. 이미 쓰이는 드라이브 문자나 똑같은 리모트/경로를 중복으로 등록하려 하면 저장 시 바로 알려줍니다.
 
 **평소 사용**
 - 목록에서 **마운트**/**해제** 버튼으로 개별 드라이브를 켜고 끕니다.
 - **자동** 체크박스를 켠 마운트는 프로그램 시작 시 자동으로 연결됩니다.
+- 목록 순서는 항목을 선택한 뒤 위/아래 버튼으로 바꿀 수 있습니다.
 - 창을 닫아도 프로그램은 종료되지 않고 **트레이(작업 표시줄 오른쪽 아이콘)**로 들어갑니다. 트레이 아이콘을 좌클릭하면 창이 다시 열리고, 우클릭하면 마운트 목록을 바로 켜고 끌 수 있는 메뉴가 뜹니다.
 - 완전히 종료하려면 트레이 메뉴의 **종료**를 누르세요 — 이때 켜져 있던 마운트가 전부 안전하게 해제된 뒤 종료됩니다.
 
@@ -40,7 +44,7 @@ Windows용 rclone 마운트 관리 트레이 앱입니다. rclone 리모트를 �
 ## 자동 업데이트
 
 - 프로그램 상단의 버전 배지, rclone 버전 표시를 각각 클릭하면 새 버전이 있는지 바로 확인합니다.
-- 새 버전이 있으면 알림이 뜨고, 확인을 누르면 자동으로 받아서 적용 후 재시작됩니다.
+- 새 버전이 있으면 알림이 뜨고, 확인을 누르면 자동으로 받아서 적용 후 재시작됩니다. rclone 자체 업데이트도 같은 방식으로 진행 상황이 표시됩니다.
 - 백그라운드에서도 주기적으로 조용히 확인하며, 새 버전을 찾으면 (트레이에 있어도) 창을 띄워 알려줍니다.
 
 ## 문제가 생겼다면
