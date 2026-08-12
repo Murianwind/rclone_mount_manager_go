@@ -14,13 +14,11 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-// mount starts rclone for m, unless it's already running. Safe to call
-// from any goroutine — all UI touches are wrapped in fyne.Do.
+// mount starts rclone for m, unless the mount entry is already reserved by a
+// live or starting process. Reservation happens before cmd.Start(), so two
+// concurrent callers cannot both pass the isRunning check and spawn duplicate
+// rclone processes for the same mount.
 func (rm *rcloneManager) mount(m engine.Mount) {
-	if rm.isRunning(m.ID) {
-		return // already mounted — avoid spawning a duplicate rclone process
-	}
-
 	exe, ok := rm.rcloneExePath()
 	if !ok {
 		rm.logf("ERROR", "[마운트] %s:%s 실패 — rclone.exe를 찾을 수 없음", m.Remote, m.RemotePath)
@@ -33,10 +31,28 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 
 	args := engine.BuildCmd(exe, m)
 	cmd := exec.Command(args[0], args[1:]...)
-	engine.ConfigureBackgroundProcess(cmd) // hide console window, own process group
+	engine.ConfigureBackgroundProcess(cmd) // hide console window, own process group/console
 	var stderrBuf bytes.Buffer
 	cmd.Stderr = &stderrBuf
+	done := make(chan struct{})
+	running := &runningMount{cmd: cmd, done: done, stderr: &stderrBuf}
+
+	// Reserve the mount before Start(). This closes the race between
+	// startup auto-mount, network-monitor transitions, and manual mounting.
+	rm.activeMu.Lock()
+	if _, exists := rm.active[m.ID]; exists {
+		rm.activeMu.Unlock()
+		return
+	}
+	rm.active[m.ID] = running
+	rm.activeMu.Unlock()
+
 	if err := cmd.Start(); err != nil {
+		rm.activeMu.Lock()
+		if rm.active[m.ID] == running {
+			delete(rm.active, m.ID)
+		}
+		rm.activeMu.Unlock()
 		rm.logf("ERROR", "[마운트] %s:%s 프로세스 시작 실패: %v", m.Remote, m.RemotePath, err)
 		fyne.Do(func() {
 			rm.revealWindow()
@@ -44,12 +60,8 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 		})
 		return
 	}
-	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)
 
-	done := make(chan struct{})
-	rm.activeMu.Lock()
-	rm.active[m.ID] = &runningMount{cmd: cmd, done: done, stderr: &stderrBuf}
-	rm.activeMu.Unlock()
+	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)
 	fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
 
 	go rm.waitForMountExit(m, cmd, done, &stderrBuf)
@@ -103,16 +115,11 @@ func (rm *rcloneManager) unmount(mountID string) {
 	go rm.stopMountAndWait(mountID)
 }
 
-// stopMountAndWait gracefully stops a running mount (so rclone unmounts
-// its WinFsp filesystem cleanly instead of leaving the drive letter
-// stuck), falling back to a hard Kill() if it doesn't exit in time, and
-// blocks until it's actually gone.
-//
-// This blocking form exists specifically for app shutdown: quitting
-// without waiting here left rclone.exe running as an orphaned process
-// still holding the drive, which is why every next launch failed with
-// "mountpoint path already exists" — nothing had ever waited for the
-// unmount to actually finish before the app exited.
+// stopMountAndWait gracefully stops a running mount and does not return until
+// the rclone process has actually exited. If the graceful signal is rejected
+// or the process does not exit in time, it falls back to Kill() and still
+// waits for cmd.Wait() to finish. This prevents the application from quitting
+// while rclone.exe is still holding a WinFsp mountpoint.
 func (rm *rcloneManager) stopMountAndWait(mountID string) {
 	rm.activeMu.Lock()
 	running, ok := rm.active[mountID]
@@ -127,14 +134,28 @@ func (rm *rcloneManager) stopMountAndWait(mountID string) {
 	if err := engine.SignalGracefulStop(running.cmd.Process.Pid); err != nil {
 		rm.logf("WARN", "[언마운트] 정상 종료 신호 실패(%v) → 강제 종료", err)
 		_ = running.cmd.Process.Kill()
+		rm.waitForStoppedProcess(running.done)
 		return
 	}
+
 	select {
 	case <-running.done:
-		// exited cleanly on its own
+		// rclone handled CTRL_BREAK and completed its WinFsp unmount.
 	case <-time.After(5 * time.Second):
 		rm.logf("WARN", "[언마운트] 5초 내 종료 안 됨 → 강제 종료")
 		_ = running.cmd.Process.Kill()
+		rm.waitForStoppedProcess(running.done)
+	}
+}
+
+// waitForStoppedProcess gives cmd.Wait() time to observe the killed process.
+// The goroutine that owns cmd.Wait() closes done, so this never calls Wait a
+// second time and therefore cannot race with waitForMountExit.
+func (rm *rcloneManager) waitForStoppedProcess(done <-chan struct{}) {
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		rm.logf("ERROR", "[언마운트] 강제 종료 후에도 rclone 프로세스 종료 확인 실패")
 	}
 }
 
@@ -142,7 +163,7 @@ func (rm *rcloneManager) stopMountAndWait(mountID string) {
 // finish before actually quitting the app. This is the only place that
 // should ever call fyne.CurrentApp().Quit() — quitting directly (as the
 // tray "종료" item used to) left rclone.exe processes orphaned and still
-// holding their drives, which broke every subsequent launch.
+// holding their drives.
 func (rm *rcloneManager) quitGracefully() {
 	rm.saveWindowSize()
 	active := rm.activeMountsSnapshot()
@@ -183,10 +204,9 @@ func (rm *rcloneManager) testMountConnection(remote, path string) {
 	}()
 }
 
-// autoMountAll starts every mount flagged AutoMount. Called once from the
-// app's "started" lifecycle hook so it runs after the event loop (and
-// therefore dialogs/UI updates) is actually safe to use — and again by the
-// network monitor whenever connectivity is (re)established.
+// autoMountAll starts every mount flagged AutoMount. The network monitor owns
+// the initial connectivity transition as well as later reconnects, so there
+// is exactly one startup trigger for this operation.
 func (rm *rcloneManager) autoMountAll() {
 	for _, m := range rm.cfg.Mounts {
 		if m.AutoMount {
@@ -213,9 +233,7 @@ func (rm *rcloneManager) unmountAllOnDisconnect() {
 
 // unmountAllAndWait stops every currently-active mount concurrently and
 // blocks until all of them are actually gone. Used before the app exits
-// (quitGracefully) or restarts itself (self-update) — both need the
-// drives released before the process disappears, not just "asked to
-// release."
+// (quitGracefully) or restarts itself (self-update).
 func (rm *rcloneManager) unmountAllAndWait() {
 	rm.activeMu.Lock()
 	ids := make([]string, 0, len(rm.active))
@@ -236,9 +254,9 @@ func (rm *rcloneManager) unmountAllAndWait() {
 }
 
 // startNetworkMonitor polls connectivity every 10s and reacts only on a
-// state *transition* (disconnected->connected or vice versa) — mirrors the
-// Python version's _start_net_monitor exactly, including starting from an
-// "unknown" state so the very first check always fires once.
+// state transition. The first completed check establishes the initial state;
+// if connected, that initial transition is the single startup auto-mount.
+// It is called from the Fyne app-started lifecycle hook so all UI work is safe.
 func (rm *rcloneManager) startNetworkMonitor() {
 	go func() {
 		var wasConnected *bool

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # tokenless Codecov upload via GitHub OIDC
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +23,7 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: install Fyne build deps (Linux headers, cmd/gui only builds/tests here — not distributed)
+      - name: install Fyne build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev \
@@ -32,7 +32,7 @@ jobs:
       - name: go vet (engine)
         run: go vet ./internal/...
 
-      - name: go vet (gui — pure-logic helpers only; actual Windows build is validated on windows-latest)
+      - name: go vet (gui)
         run: go vet ./cmd/gui/...
 
       - name: Run go test with coverage
@@ -55,35 +55,21 @@ jobs:
         run: |
           PASS_COUNT=$(grep -cE "^\s*--- PASS:" go-test-output.txt || true)
           FAIL_COUNT=$(grep -cE "^\s*--- FAIL:" go-test-output.txt || true)
-
-          # ── 헤더 + 요약 ──────────────────────────────────────────────────
           if [ "${TEST_EXIT:-0}" = "0" ]; then
-            echo "### ✅ Go 테스트 결과: 전체 통과" >> $GITHUB_STEP_SUMMARY
+            echo "### Go 테스트 결과: 전체 통과" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### ❌ Go 테스트 결과: 실패 있음" >> $GITHUB_STEP_SUMMARY
+            echo "### Go 테스트 결과: 실패 있음" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**PASS ${PASS_COUNT}건 / FAIL ${FAIL_COUNT}건**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # ── 실행된 테스트 전체 목록 (접기) ──────────────────────────────
-          echo "<details>" >> $GITHUB_STEP_SUMMARY
-          echo "<summary>📋 실행된 테스트 전체 목록 (클릭하여 펼치기)</summary>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           grep -E "^\s*--- (PASS|FAIL):" go-test-output.txt \
             | sed -E 's/^\s*--- PASS: /✓  /' \
-            | sed -E 's/^\s*--- FAIL: /✗  ← FAILED  /' \
+            | sed -E 's/^\s*--- FAIL: /✗  FAILED  /' \
             >> $GITHUB_STEP_SUMMARY || echo "(없음)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          # ── 실패 상세 ────────────────────────────────────────────────────
           if [ "$FAIL_COUNT" -gt "0" ]; then
-            echo "---" >> $GITHUB_STEP_SUMMARY
-            echo "### ❌ 실패 상세" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 실패 상세" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
             awk '
               /^=== RUN/ { last_run = NR }
@@ -97,18 +83,15 @@ jobs:
           fi
 
       - name: Generate Coverage Report
-        if: always()
+        if: always() && hashFiles('coverage.out') != ''
         run: |
-          echo "### 📊 구문 커버리지 상세 (Statement Coverage)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Go 표준 커버리지 툴은 구문(statement) 커버리지만 제공합니다 — Python coverage.py의 분기(branch) 커버리지에 대응하는 기능은 없습니다." >> $GITHUB_STEP_SUMMARY
+          echo "### 구문 커버리지 상세 (Statement Coverage)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| 파일 경로 | 실행 가능 구문 | 실행 안 됨 | 구문 커버리지(%) |" >> $GITHUB_STEP_SUMMARY
           echo "|:---|---:|---:|---:|" >> $GITHUB_STEP_SUMMARY
-
           awk '
             NR>1 {
-              n = split($0, parts, " ")
+              split($0, parts, " ")
               split(parts[1], fp, ":")
               file = fp[1]
               stmts = parts[2]
@@ -126,23 +109,15 @@ jobs:
           ' coverage.out | sort | while IFS='|' read -r file stmts miss pct; do
             echo "| $file | $stmts | $miss | **${pct}%** |" >> $GITHUB_STEP_SUMMARY
           done
-
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "<details>" >> $GITHUB_STEP_SUMMARY
-          echo "<summary>🔍 함수별 상세 커버리지 (클릭하여 펼치기)</summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "</details>" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
           TOTAL_PCT=$(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')
-          echo "### 📈 최종 커버리지 요약" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**전체 구문 커버리지: ${TOTAL_PCT}**" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Coverage to Codecov
+        if: always() && hashFiles('coverage.out') != ''
         uses: codecov/codecov-action@v4
         with:
           files: ./coverage.out
