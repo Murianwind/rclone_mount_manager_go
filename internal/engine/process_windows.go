@@ -3,7 +3,6 @@
 package engine
 
 import (
-	"errors"
 	"os/exec"
 	"syscall"
 
@@ -38,10 +37,5 @@ func SignalGracefulStop(pid int) error {
 	}
 	defer windows.FreeConsole()
 
-	if err = windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid)); err != nil {
-		return err
-	}
-	return nil
+	return windows.GenerateConsoleCtrlEvent(windows.CTRL_BREAK_EVENT, uint32(pid))
 }
-
-var _ = errors.New // keep errors available for future Windows-specific stop errors
