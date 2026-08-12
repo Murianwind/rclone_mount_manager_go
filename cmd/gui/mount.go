@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
 
-	"github.com/murianwind/rclone-manager-go/internal/engine"
+	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
 // mount starts rclone for m, unless the mount entry is already reserved by a
@@ -61,7 +61,7 @@ func (rm *rcloneManager) mount(m engine.Mount) {
 		return
 	}
 
-	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, cmd.Process.Pid)
+	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)
 	fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
 
 	go rm.waitForMountExit(m, cmd, done, &stderrBuf)
