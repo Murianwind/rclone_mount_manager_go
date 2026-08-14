@@ -58,12 +58,11 @@ type rcloneManager struct {
 	offlineMu    sync.Mutex
 	offlineSince time.Time
 
-	// appUpdateAvailable/rcloneUpdateAvailable/mountProblem drive the tray
-	// tooltip's status text (see updateTrayTooltip). Only ever touched
-	// from the Fyne UI thread (inside fyne.Do), so no separate mutex.
+	// appUpdateAvailable/rcloneUpdateAvailable drive the tray tooltip's
+	// status text (see updateTrayTooltip). Only ever touched from the
+	// Fyne UI thread (inside fyne.Do), so no separate mutex.
 	appUpdateAvailable    bool
 	rcloneUpdateAvailable bool
-	mountProblem          bool
 }
 
 func newRcloneManager(appDir string, log engine.RotatingLog, win fyne.Window) *rcloneManager {

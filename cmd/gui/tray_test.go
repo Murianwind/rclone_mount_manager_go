@@ -50,46 +50,32 @@ func TestTrayDisplayLabel(t *testing.T) {
 }
 
 func TestTrayTooltipText(t *testing.T) {
-	Scenario(t, "GIVEN 아무 문제도 업데이트도 없음 WHEN 툴팁 텍스트 결정 THEN 그냥 앱 이름만 보여준다", func(t *testing.T) {
-		if got := trayTooltipText(false, false, false); got != "RcloneManager" {
+	Scenario(t, "GIVEN 업데이트가 없음 WHEN 툴팁 텍스트 결정 THEN 그냥 앱 이름만 보여준다", func(t *testing.T) {
+		if got := trayTooltipText(false, false); got != "RcloneManager" {
 			t.Errorf("got %q, 기대값 %q", got, "RcloneManager")
 		}
 	})
 
 	Scenario(t, "GIVEN 앱 업데이트만 있음 WHEN 툴팁 텍스트 결정 THEN 앱 업데이트라고 구체적으로 보여준다", func(t *testing.T) {
-		got := trayTooltipText(true, false, false)
+		got := trayTooltipText(true, false)
 		if got != "RcloneManager — 앱 업데이트 있음" {
 			t.Errorf("got %q", got)
 		}
 	})
 
 	Scenario(t, "GIVEN rclone 업데이트만 있음 WHEN 툴팁 텍스트 결정 THEN rclone 업데이트라고 구체적으로 보여준다", func(t *testing.T) {
-		got := trayTooltipText(false, true, false)
+		got := trayTooltipText(false, true)
 		if got != "RcloneManager — rclone 업데이트 있음" {
 			t.Errorf("got %q", got)
 		}
 	})
 
-	Scenario(t, "GIVEN 앱과 rclone 업데이트가 둘 다 있음 WHEN 툴팁 텍스트 결정 THEN 둘 다 있다고 보여준다", func(t *testing.T) {
-		got := trayTooltipText(true, true, false)
+	// 부정/경계 케이스: 앱과 rclone 업데이트가 동시에 있으면 둘 다 있다고
+	// 보여줘야 한다 — 둘 중 하나를 조용히 숨기면 안 된다.
+	Scenario(t, "GIVEN 앱과 rclone 업데이트가 둘 다 있음 WHEN 툴팁 텍스트 결정 THEN 둘 다 있다고 보여준다 (경계 케이스)", func(t *testing.T) {
+		got := trayTooltipText(true, true)
 		if got != "RcloneManager — 앱/rclone 업데이트 있음" {
 			t.Errorf("got %q", got)
-		}
-	})
-
-	Scenario(t, "GIVEN 마운트 문제만 있음 WHEN 툴팁 텍스트 결정 THEN 문제 안내를 보여준다", func(t *testing.T) {
-		got := trayTooltipText(false, false, true)
-		if got != "RcloneManager — 마운트 문제 발생(자세히 보려면 클릭)" {
-			t.Errorf("got %q", got)
-		}
-	})
-
-	// 부정/경계 케이스: 업데이트(둘 중 하나든 둘 다든)와 마운트 문제가
-	// 동시에 있으면, 더 급한 쪽(마운트 문제)이 우선해야 한다.
-	Scenario(t, "GIVEN 업데이트와 마운트 문제가 동시에 있음 WHEN 툴팁 텍스트 결정 THEN 더 급한 마운트 문제 쪽이 우선한다 (경계 케이스)", func(t *testing.T) {
-		got := trayTooltipText(true, true, true)
-		if got != "RcloneManager — 마운트 문제 발생(자세히 보려면 클릭)" {
-			t.Errorf("got %q, 마운트 문제가 우선해야 함", got)
 		}
 	})
 }

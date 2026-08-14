@@ -30,25 +30,22 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	rm.updateTrayTooltip()
 }
 
-// updateTrayTooltip refreshes the tray icon's hover text to reflect
-// current status — a pending update or an unresolved mount failure take
-// priority over the plain app name, so hovering the icon (without opening
-// the menu) is enough to notice something needs attention. Call this
-// whenever appUpdateAvailable, rcloneUpdateAvailable, or mountProblem changes.
+// updateTrayTooltip refreshes the tray icon's hover text to reflect a
+// pending update. Mount failures don't need a tooltip entry of their own —
+// showMountFailureDialog already reveals the window the moment one
+// happens, so there's no "missed it" window for a tooltip to cover. Call
+// this whenever appUpdateAvailable or rcloneUpdateAvailable changes.
 func (rm *rcloneManager) updateTrayTooltip() {
-	systray.SetTooltip(trayTooltipText(rm.appUpdateAvailable, rm.rcloneUpdateAvailable, rm.mountProblem))
+	systray.SetTooltip(trayTooltipText(rm.appUpdateAvailable, rm.rcloneUpdateAvailable))
 }
 
-// trayTooltipText is the pure priority rule behind updateTrayTooltip: a
-// mount problem is the most urgent, so it wins over either kind of update.
-// App and rclone updates are both named explicitly rather than folded into
-// one generic "update available" — clicking a rclone-only update button
+// trayTooltipText is the pure text-composing rule behind updateTrayTooltip.
+// App and rclone updates are named explicitly rather than folded into one
+// generic "update available" — clicking a rclone-only update button
 // shouldn't leave the user wondering whether it was the app itself.
 // Pulled out for testing — see tray_test.go.
-func trayTooltipText(appUpdateAvailable, rcloneUpdateAvailable, mountProblem bool) string {
+func trayTooltipText(appUpdateAvailable, rcloneUpdateAvailable bool) string {
 	switch {
-	case mountProblem:
-		return "RcloneManager — 마운트 문제 발생(자세히 보려면 클릭)"
 	case appUpdateAvailable && rcloneUpdateAvailable:
 		return "RcloneManager — 앱/rclone 업데이트 있음"
 	case appUpdateAvailable:
