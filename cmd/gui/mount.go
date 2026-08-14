@@ -70,7 +70,14 @@ func (rm *rcloneManager) mountWithOrigin(m engine.Mount, auto bool) {
 	}
 
 	rm.logf("INFO", "[마운트] %s:%s → %s 시작 (pid %d)", m.Remote, m.RemotePath, m.Drive, cmd.Process.Pid)
-	fyne.Do(func() { rm.table.Refresh(); rm.refreshTrayMenu() })
+	fyne.Do(func() {
+		rm.table.Refresh()
+		rm.refreshTrayMenu()
+		if rm.mountProblem {
+			rm.mountProblem = false
+			rm.updateTrayTooltip()
+		}
+	})
 
 	go rm.waitForMountExit(m, cmd, done, &stderrBuf)
 }

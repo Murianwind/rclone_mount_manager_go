@@ -27,7 +27,30 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	// entirely, regardless of app metadata, leaving the tray icon's hover
 	// tooltip permanently blank. Set it directly via the underlying
 	// systray package, which Fyne already depends on.
-	systray.SetTooltip("RcloneManager")
+	rm.updateTrayTooltip()
+}
+
+// updateTrayTooltip refreshes the tray icon's hover text to reflect
+// current status — a pending update or an unresolved mount failure take
+// priority over the plain app name, so hovering the icon (without opening
+// the menu) is enough to notice something needs attention. Call this
+// whenever updateAvailable or mountProblem changes.
+func (rm *rcloneManager) updateTrayTooltip() {
+	systray.SetTooltip(trayTooltipText(rm.updateAvailable, rm.mountProblem))
+}
+
+// trayTooltipText is the pure priority rule behind updateTrayTooltip:
+// a mount problem is more urgent than "just an update," so it wins if
+// both are true. Pulled out for testing — see tray_test.go.
+func trayTooltipText(updateAvailable, mountProblem bool) string {
+	switch {
+	case mountProblem:
+		return "RcloneManager — 마운트 문제 발생(자세히 보려면 클릭)"
+	case updateAvailable:
+		return "RcloneManager — 새 버전 있음"
+	default:
+		return "RcloneManager"
+	}
 }
 
 // buildTrayMenu mirrors the Python version's _build_tray_menu(): 열기, then

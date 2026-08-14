@@ -57,6 +57,12 @@ type rcloneManager struct {
 	// expected outage; see shouldSuppressAutoMountFailure.
 	offlineMu    sync.Mutex
 	offlineSince time.Time
+
+	// updateAvailable/mountProblem drive the tray tooltip's status text
+	// (see updateTrayTooltip). Only ever touched from the Fyne UI thread
+	// (inside fyne.Do), so no separate mutex.
+	updateAvailable bool
+	mountProblem    bool
 }
 
 func newRcloneManager(appDir string, log engine.RotatingLog, win fyne.Window) *rcloneManager {

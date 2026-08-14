@@ -67,6 +67,8 @@ func (rm *rcloneManager) checkRcloneUpdate(manual bool) {
 		active := rm.activeMountsSnapshot()
 		fyne.Do(func() {
 			rm.revealWindow()
+			rm.updateAvailable = true
+			rm.updateTrayTooltip()
 			msg := fmt.Sprintf("rclone v%s → v%s로 업데이트할까요?", local, latest)
 			if len(active) > 0 {
 				msg += "\n\n현재 마운트 중인 드라이브가 있습니다 — 업데이트 전 모두 해제하고, 완료 후 자동으로 다시 마운트합니다."
@@ -169,6 +171,8 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 				rm.rcPathEntry.SetText(newPath)
 				rm.persist()
 				rm.refreshVersionLabel()
+				rm.updateAvailable = false
+				rm.updateTrayTooltip()
 				dialog.ShowInformation("완료", "rclone 설치/업데이트 완료!", rm.win)
 			})
 			for _, m := range remountAfter {

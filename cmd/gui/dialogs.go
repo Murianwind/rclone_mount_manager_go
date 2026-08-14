@@ -181,6 +181,8 @@ func (rm *rcloneManager) confirmDeleteRemote(r engine.Remote) {
 // back to "해제됨". Also points at the log file for the full history.
 func (rm *rcloneManager) showMountFailureDialog(m engine.Mount, detail string) {
 	rm.revealWindow()
+	rm.mountProblem = true
+	rm.updateTrayTooltip()
 	label := widget.NewLabel(mountFailureMessage(m, detail, rm.log.Path))
 	label.Wrapping = fyne.TextWrapWord
 	scroll := container.NewVScroll(label)
