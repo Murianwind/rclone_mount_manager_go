@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/dialog"
@@ -21,10 +22,11 @@ import (
 // "해제됨". stoppedByUs distinguishes a failure from a normal unmount
 // (both make the process exit, often with a non-zero code).
 type runningMount struct {
-	cmd         *exec.Cmd
-	done        chan struct{}
-	stderr      *bytes.Buffer
-	stoppedByUs bool
+	cmd           *exec.Cmd
+	done          chan struct{}
+	stderr        *bytes.Buffer
+	stoppedByUs   bool
+	autoTriggered bool // started by autoMountAll(), not a direct user action
 }
 
 // rcloneManager is the single owner of all app state — config, running
@@ -48,6 +50,13 @@ type rcloneManager struct {
 
 	activeMu sync.Mutex
 	active   map[string]*runningMount
+
+	// offlineMu guards offlineSince — when connectivity was last observed
+	// down (zero value = currently believed connected). Used to suppress
+	// mount-failure dialogs for auto-triggered attempts during a short,
+	// expected outage; see shouldSuppressAutoMountFailure.
+	offlineMu    sync.Mutex
+	offlineSince time.Time
 }
 
 func newRcloneManager(appDir string, log engine.RotatingLog, win fyne.Window) *rcloneManager {

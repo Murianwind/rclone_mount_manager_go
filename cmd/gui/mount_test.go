@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 // ── keywords ──
@@ -71,6 +72,42 @@ func TestFormatRcloneVersionLabel(t *testing.T) {
 		got := formatRcloneVersionLabel("not a version string", nil)
 		if got != "v알 수 없음" {
 			t.Errorf("got %q, want %q", got, "v알 수 없음")
+		}
+	})
+}
+
+func TestShouldSuppressAutoMountFailure(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	Scenario(t, "GIVEN we currently believe we're connected (offlineSince is zero) WHEN an auto-mount fails anyway THEN it is not suppressed — likely unrelated to the network", func(t *testing.T) {
+		got := shouldSuppressAutoMountFailure(time.Time{}, now, 5*time.Minute)
+		if got {
+			t.Errorf("should not suppress when offlineSince is zero")
+		}
+	})
+
+	Scenario(t, "GIVEN the outage started 1 minute ago (well within the grace period) WHEN an auto-mount fails THEN it is suppressed", func(t *testing.T) {
+		offlineSince := now.Add(-1 * time.Minute)
+		got := shouldSuppressAutoMountFailure(offlineSince, now, 5*time.Minute)
+		if !got {
+			t.Errorf("should suppress within the grace period")
+		}
+	})
+
+	Scenario(t, "GIVEN the outage started exactly at the grace-period boundary WHEN an auto-mount fails THEN it is no longer suppressed (boundary case)", func(t *testing.T) {
+		offlineSince := now.Add(-5 * time.Minute)
+		got := shouldSuppressAutoMountFailure(offlineSince, now, 5*time.Minute)
+		if got {
+			t.Errorf("should not suppress once the grace period has fully elapsed")
+		}
+	})
+
+	// The actual scenario this feature exists for: a real, persistent outage.
+	Scenario(t, "GIVEN the outage has persisted 10 minutes (past the grace period) WHEN an auto-mount fails THEN it is shown — this is a genuine, ongoing problem worth surfacing", func(t *testing.T) {
+		offlineSince := now.Add(-10 * time.Minute)
+		got := shouldSuppressAutoMountFailure(offlineSince, now, 5*time.Minute)
+		if got {
+			t.Errorf("should not suppress a failure during a persistent, long-running outage")
 		}
 	})
 }
