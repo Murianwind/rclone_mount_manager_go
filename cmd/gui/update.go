@@ -53,7 +53,7 @@ func (rm *rcloneManager) checkForUpdate(manual bool) {
 
 		fyne.Do(func() {
 			rm.revealWindow()
-			rm.updateAvailable = true
+			rm.appUpdateAvailable = true
 			rm.updateTrayTooltip()
 			dialog.ShowConfirm("업데이트 가능",
 				fmt.Sprintf("새 버전 v%s가 있습니다. 지금 업데이트할까요?\n(적용 후 앱이 자동으로 재시작됩니다)", rel.Version),

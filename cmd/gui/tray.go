@@ -34,20 +34,27 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 // current status — a pending update or an unresolved mount failure take
 // priority over the plain app name, so hovering the icon (without opening
 // the menu) is enough to notice something needs attention. Call this
-// whenever updateAvailable or mountProblem changes.
+// whenever appUpdateAvailable, rcloneUpdateAvailable, or mountProblem changes.
 func (rm *rcloneManager) updateTrayTooltip() {
-	systray.SetTooltip(trayTooltipText(rm.updateAvailable, rm.mountProblem))
+	systray.SetTooltip(trayTooltipText(rm.appUpdateAvailable, rm.rcloneUpdateAvailable, rm.mountProblem))
 }
 
-// trayTooltipText is the pure priority rule behind updateTrayTooltip:
-// a mount problem is more urgent than "just an update," so it wins if
-// both are true. Pulled out for testing — see tray_test.go.
-func trayTooltipText(updateAvailable, mountProblem bool) string {
+// trayTooltipText is the pure priority rule behind updateTrayTooltip: a
+// mount problem is the most urgent, so it wins over either kind of update.
+// App and rclone updates are both named explicitly rather than folded into
+// one generic "update available" — clicking a rclone-only update button
+// shouldn't leave the user wondering whether it was the app itself.
+// Pulled out for testing — see tray_test.go.
+func trayTooltipText(appUpdateAvailable, rcloneUpdateAvailable, mountProblem bool) string {
 	switch {
 	case mountProblem:
 		return "RcloneManager — 마운트 문제 발생(자세히 보려면 클릭)"
-	case updateAvailable:
-		return "RcloneManager — 새 버전 있음"
+	case appUpdateAvailable && rcloneUpdateAvailable:
+		return "RcloneManager — 앱/rclone 업데이트 있음"
+	case appUpdateAvailable:
+		return "RcloneManager — 앱 업데이트 있음"
+	case rcloneUpdateAvailable:
+		return "RcloneManager — rclone 업데이트 있음"
 	default:
 		return "RcloneManager"
 	}
