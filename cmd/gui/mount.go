@@ -253,27 +253,35 @@ func (rm *rcloneManager) unmountAllAndWait() {
 	wg.Wait()
 }
 
-// startNetworkMonitor polls connectivity every 10s and reacts only on a
-// state transition. The first completed check establishes the initial state;
-// if connected, that initial transition is the single startup auto-mount.
+// startNetworkMonitor polls connectivity every 10s. While connected, it
+// repeatedly calls autoMountAll() (not just once on the reconnect edge) —
+// mount() already no-ops instantly for anything already active, so this is
+// cheap, and it matters because a genuine retry can otherwise be lost:
+// rclone can take well over a minute to actually fail when there's no
+// network, so a mount slot can still be "reserved" (occupied by the old,
+// not-yet-failed attempt) at the exact moment connectivity returns. A
+// one-shot edge trigger would silently lose that retry forever; polling
+// while connected picks it up on the next cycle instead. Disconnection is
+// still handled once per edge, since there's nothing to retry there.
 // It is called from the Fyne app-started lifecycle hook so all UI work is safe.
 func (rm *rcloneManager) startNetworkMonitor() {
 	go func() {
-		var wasConnected *bool
+		connected := engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
+		if connected {
+			rm.autoMountAll()
+		}
+		wasConnected := connected
+
 		for {
-			connected := engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
-
-			if wasConnected == nil || *wasConnected != connected {
-				c := connected
-				wasConnected = &c
-				if connected {
-					rm.autoMountAll()
-				} else {
-					rm.unmountAllOnDisconnect()
-				}
-			}
-
 			time.Sleep(10 * time.Second)
+			connected = engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
+
+			if connected {
+				rm.autoMountAll()
+			} else if wasConnected {
+				rm.unmountAllOnDisconnect()
+			}
+			wasConnected = connected
 		}
 	}()
 }

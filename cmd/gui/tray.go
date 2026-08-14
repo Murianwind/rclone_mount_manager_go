@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/systray"
 
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
@@ -20,6 +21,13 @@ func (rm *rcloneManager) setupTray(fyneApp fyne.App) {
 	desk.SetSystemTrayWindow(rm.win)
 	desk.SetSystemTrayIcon(appIcon)
 	desk.SetSystemTrayMenu(rm.buildTrayMenu())
+
+	// Fyne's own driver only calls systray.SetTitle on Linux/BSD (see
+	// fyne-io/fyne's driver_desktop.go) — on Windows it's skipped
+	// entirely, regardless of app metadata, leaving the tray icon's hover
+	// tooltip permanently blank. Set it directly via the underlying
+	// systray package, which Fyne already depends on.
+	systray.SetTooltip("RcloneManager")
 }
 
 // buildTrayMenu mirrors the Python version's _build_tray_menu(): 열기, then

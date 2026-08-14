@@ -10,7 +10,7 @@ require github.com/FyshOS/fancyfs v0.0.1 // indirect
 
 require (
 	fyne.io/fyne/v2 v2.8.0
-	fyne.io/systray v1.12.2 // indirect
+	fyne.io/systray v1.12.2
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/anthonynsimon/bild v0.14.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.2.0 // indirect
