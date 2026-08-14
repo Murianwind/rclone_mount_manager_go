@@ -18,14 +18,14 @@ import (
 // live or starting process. Reservation happens before cmd.Start(), so two
 // concurrent callers cannot both pass the isRunning check and spawn duplicate
 // rclone processes for the same mount.
-//
-// auto marks the attempt as machine-triggered (autoMountAll(), not a direct
-// user action) — this is what lets waitForMountExit apply the offline-grace
-// suppression instead of always reporting a failure dialog.
 func (rm *rcloneManager) mount(m engine.Mount) {
 	rm.mountWithOrigin(m, false)
 }
 
+// mountWithOrigin is mount()'s real implementation. auto marks the attempt
+// as machine-triggered (autoMountAll(), not a direct user action) — this is
+// what lets waitForMountExit apply the offline-grace suppression instead of
+// always reporting a failure dialog. See networkmonitor.go for the auto side.
 func (rm *rcloneManager) mountWithOrigin(m engine.Mount, auto bool) {
 	exe, ok := rm.rcloneExePath()
 	if !ok {
@@ -95,12 +95,21 @@ func (rm *rcloneManager) waitForMountExit(m engine.Mount, cmd *exec.Cmd, done ch
 	rm.activeMu.Unlock()
 
 	detail := strings.TrimSpace(stderrBuf.String())
-	if err != nil {
+	switch {
+	case err != nil && stoppedByUs:
+		// 우리가 직접 중지시킨(정상 종료 신호 또는 타임아웃 후 강제 종료)
+		// 프로세스는 0이 아닌 코드로 끝나는 경우가 흔하다 — 예상된 결과라
+		// WARN이 아니라 INFO로 남긴다. (강제 종료 시 Windows가 자주 보고하는
+		// exit status 0x40010004(DBG_TERMINATE_PROCESS)가 대표적인 예:
+		// 실제로는 우리가 요청한 종료가 성공한 것뿐인데, 이걸 WARN으로 찍으면
+		// 로그를 볼 때마다 진짜 문제와 구분이 안 된다.)
+		rm.logf("INFO", "[마운트] %s:%s 프로세스 종료 (요청에 의한 종료, 코드: %v)", m.Remote, m.RemotePath, err)
+	case err != nil:
 		rm.logf("WARN", "[마운트] %s:%s 프로세스 종료 (오류 종료: %v)", m.Remote, m.RemotePath, err)
 		if detail != "" {
 			rm.logf("ERROR", "[마운트] %s:%s 오류 상세: %s", m.Remote, m.RemotePath, detail)
 		}
-	} else {
+	default:
 		rm.logf("INFO", "[마운트] %s:%s 프로세스 종료", m.Remote, m.RemotePath)
 	}
 
@@ -117,41 +126,6 @@ func (rm *rcloneManager) waitForMountExit(m engine.Mount, cmd *exec.Cmd, done ch
 			rm.showMountFailureDialog(m, detail)
 		}
 	})
-}
-
-// autoMountFailureGrace is how long a known network outage has to persist
-// before an auto-triggered mount failure is worth interrupting the user
-// for — a brief blip is expected to resolve itself on the next retry.
-const autoMountFailureGrace = 5 * time.Minute
-
-// shouldSuppressAutoMountFailure decides whether an auto-triggered mount
-// failure should stay silent. offlineSince is when connectivity was last
-// observed down (zero if we currently believe we're connected). Suppressed
-// only while a *known* outage is still within the grace period — a failure
-// while we think we're online, or after an outage that's dragged on past
-// the grace period, is shown normally, since at that point it's more
-// likely a real, unrelated problem worth surfacing. Pulled out as a pure
-// function for testing — see mount_test.go.
-func shouldSuppressAutoMountFailure(offlineSince, now time.Time, grace time.Duration) bool {
-	if offlineSince.IsZero() {
-		return false
-	}
-	return now.Sub(offlineSince) < grace
-}
-
-// getOfflineSince/setOfflineSince guard offlineSince — written from the
-// network-monitor goroutine, read from whichever goroutine is finishing up
-// a mount attempt in waitForMountExit.
-func (rm *rcloneManager) getOfflineSince() time.Time {
-	rm.offlineMu.Lock()
-	defer rm.offlineMu.Unlock()
-	return rm.offlineSince
-}
-
-func (rm *rcloneManager) setOfflineSince(t time.Time) {
-	rm.offlineMu.Lock()
-	rm.offlineSince = t
-	rm.offlineMu.Unlock()
 }
 
 // shouldReportMountFailure decides whether an rclone process exit is worth
@@ -212,6 +186,28 @@ func (rm *rcloneManager) waitForStoppedProcess(done <-chan struct{}) {
 	}
 }
 
+// unmountAllAndWait stops every currently-active mount concurrently and
+// blocks until all of them are actually gone. Used before the app exits
+// (quitGracefully) or restarts itself (self-update).
+func (rm *rcloneManager) unmountAllAndWait() {
+	rm.activeMu.Lock()
+	ids := make([]string, 0, len(rm.active))
+	for id := range rm.active {
+		ids = append(ids, id)
+	}
+	rm.activeMu.Unlock()
+
+	var wg sync.WaitGroup
+	for _, id := range ids {
+		wg.Add(1)
+		go func(mountID string) {
+			defer wg.Done()
+			rm.stopMountAndWait(mountID)
+		}(id)
+	}
+	wg.Wait()
+}
+
 // quitGracefully unmounts everything currently active and waits for it to
 // finish before actually quitting the app. This is the only place that
 // should ever call fyne.CurrentApp().Quit() — quitting directly (as the
@@ -254,97 +250,6 @@ func (rm *rcloneManager) testMountConnection(remote, path string) {
 			rm.logf("ERROR", "[연결 테스트] %s 실패: %v", target, err)
 			dialog.ShowInformation("연결 실패", fmt.Sprintf("연결 불가:\n%s", strings.TrimSpace(string(out))), rm.win)
 		})
-	}()
-}
-
-// autoMountAll starts every mount flagged AutoMount. The network monitor owns
-// the initial connectivity transition as well as later reconnects, so there
-// is exactly one startup trigger for this operation.
-func (rm *rcloneManager) autoMountAll() {
-	for _, m := range rm.cfg.Mounts {
-		if m.AutoMount {
-			rm.mountWithOrigin(m, true)
-		}
-	}
-}
-
-// unmountAllOnDisconnect unmounts every currently-active mount — regardless
-// of its AutoMount flag — since a mount whose remote just went unreachable
-// can hang the drive if left alone.
-func (rm *rcloneManager) unmountAllOnDisconnect() {
-	rm.activeMu.Lock()
-	ids := make([]string, 0, len(rm.active))
-	for id := range rm.active {
-		ids = append(ids, id)
-	}
-	rm.activeMu.Unlock()
-
-	for _, id := range ids {
-		rm.unmount(id)
-	}
-}
-
-// unmountAllAndWait stops every currently-active mount concurrently and
-// blocks until all of them are actually gone. Used before the app exits
-// (quitGracefully) or restarts itself (self-update).
-func (rm *rcloneManager) unmountAllAndWait() {
-	rm.activeMu.Lock()
-	ids := make([]string, 0, len(rm.active))
-	for id := range rm.active {
-		ids = append(ids, id)
-	}
-	rm.activeMu.Unlock()
-
-	var wg sync.WaitGroup
-	for _, id := range ids {
-		wg.Add(1)
-		go func(mountID string) {
-			defer wg.Done()
-			rm.stopMountAndWait(mountID)
-		}(id)
-	}
-	wg.Wait()
-}
-
-// startNetworkMonitor polls connectivity every 10s. While connected, it
-// repeatedly calls autoMountAll() (not just once on the reconnect edge) —
-// mount() already no-ops instantly for anything already active, so this is
-// cheap, and it matters because a genuine retry can otherwise be lost:
-// rclone can take well over a minute to actually fail when there's no
-// network, so a mount slot can still be "reserved" (occupied by the old,
-// not-yet-failed attempt) at the exact moment connectivity returns. A
-// one-shot edge trigger would silently lose that retry forever; polling
-// while connected picks it up on the next cycle instead. Disconnection is
-// still handled once per edge, since there's nothing to retry there.
-// It is called from the Fyne app-started lifecycle hook so all UI work is safe.
-func (rm *rcloneManager) startNetworkMonitor() {
-	go func() {
-		connected := engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
-		if connected {
-			rm.setOfflineSince(time.Time{})
-			rm.autoMountAll()
-		} else {
-			rm.setOfflineSince(time.Now())
-		}
-		wasConnected := connected
-
-		for {
-			time.Sleep(10 * time.Second)
-			connected = engine.IsInternetAvailable("8.8.8.8", 53, 3*time.Second)
-
-			if connected {
-				if !wasConnected {
-					rm.setOfflineSince(time.Time{})
-				}
-				rm.autoMountAll()
-			} else {
-				if wasConnected {
-					rm.setOfflineSince(time.Now())
-					rm.unmountAllOnDisconnect()
-				}
-			}
-			wasConnected = connected
-		}
 	}()
 }
 
