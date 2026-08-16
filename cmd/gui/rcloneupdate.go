@@ -128,6 +128,9 @@ func (rm *rcloneManager) installOrUpdateRclone(version string, remountAfter []en
 	}
 
 	go func() {
+		rm.updatingRclone.Store(true)
+		defer rm.updatingRclone.Store(false)
+
 		var progress *dialog.CustomDialog
 
 		if len(remountAfter) > 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -63,7 +64,15 @@ type rcloneManager struct {
 	// Fyne UI thread (inside fyne.Do), so no separate mutex.
 	appUpdateAvailable    bool
 	rcloneUpdateAvailable bool
+
+	// updatingRclone is set for the duration of installOrUpdateRclone —
+	// see autoMountAll's doc comment for why this needs to be atomic
+	// (read from the network-monitor goroutine, written from the update
+	// goroutine).
+	updatingRclone atomic.Bool
 }
+
+func (rm *rcloneManager) isUpdatingRclone() bool { return rm.updatingRclone.Load() }
 
 func newRcloneManager(appDir string, log engine.RotatingLog, win fyne.Window) *rcloneManager {
 	return &rcloneManager{

@@ -44,7 +44,18 @@ func (rm *rcloneManager) setOfflineSince(t time.Time) {
 // autoMountAll starts every mount flagged AutoMount. The network monitor owns
 // the initial connectivity transition as well as later reconnects, so there
 // is exactly one startup trigger for this operation.
+//
+// Skipped entirely while an rclone.exe update is in progress (see
+// rcloneupdate.go): the network monitor now retries this every 10s while
+// connected, and without this guard it could start a fresh mount with the
+// *old* rclone.exe in the brief window right after installOrUpdateRclone
+// unmounts everything to free the file — locking rclone.exe again right
+// before we try to overwrite it, and turning what should be an automatic
+// replace into "rclone.exe가 사용 중이라 자동 교체하지 못했습니다."
 func (rm *rcloneManager) autoMountAll() {
+	if rm.isUpdatingRclone() {
+		return
+	}
 	for _, m := range rm.cfg.Mounts {
 		if m.AutoMount {
 			rm.mountWithOrigin(m, true)
