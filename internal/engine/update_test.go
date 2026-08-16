@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // ── 키워드 ──
@@ -106,6 +107,36 @@ func TestCleanupPreviousExe(t *testing.T) {
 		dir := t.TempDir()
 		currentExe := filepath.Join(dir, "RcloneManager.exe")
 		CleanupPreviousExe(currentExe) // 존재하지 않아도 오류 없이 그냥 지나가야 함
+	})
+
+	// 부정 케이스: .old 자리가 절대 지워지지 않는 상태로 계속 유지되는
+	// 상황(실제로는 다른 프로세스가 계속 잠그고 있는 경우에 대응) —
+	// 무한 재시도로 멈춰버리면 안 되고, 정해진 횟수만 시도하다 포기해야
+	// 한다. 이 테스트 환경에서는 진짜 파일 잠금을 재현할 수 없어서,
+	// os.Remove가 항상 실패하는 상황(내용이 있는 디렉터리)으로 대신한다.
+	Scenario(t, "GIVEN .old 자리가 계속 삭제 불가능한 상태임 WHEN 정리 실행 THEN 무한정 재시도하지 않고 정해진 횟수 안에 포기한다 (부정 케이스)", func(t *testing.T) {
+		dir := t.TempDir()
+		currentExe := filepath.Join(dir, "RcloneManager.exe")
+		oldPath := currentExe + ".old"
+		if err := os.Mkdir(oldPath, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// 빈 디렉터리면 Remove가 성공해버리니, 내용물을 하나 넣어 항상
+		// 실패하게 만든다.
+		if err := os.WriteFile(filepath.Join(oldPath, "x"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		start := time.Now()
+		CleanupPreviousExe(currentExe)
+		elapsed := time.Since(start)
+
+		if elapsed > 5*time.Second {
+			t.Errorf("재시도가 너무 오래 걸림(%v) — 정해진 횟수 안에 포기해야 함", elapsed)
+		}
+		if _, err := os.Stat(oldPath); err != nil {
+			t.Errorf(".old 자리가 실제로 안 지워진 상황을 재현하려던 건데 이미 없어짐: %v", err)
+		}
 	})
 }
 

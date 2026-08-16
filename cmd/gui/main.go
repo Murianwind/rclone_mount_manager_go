@@ -28,7 +28,7 @@ import (
 	"github.com/Murianwind/rclone-manager-go/internal/engine"
 )
 
-const appVersion = "1.0.3"
+const appVersion = "1.0.2"
 const issueURL = "https://github.com/Murianwind/rclone_mount_manager_go/issues/new"
 
 // 컬럼 합(약 686px) + 창 여백/스크롤바를 감안해 기본 창 너비에 여유를 둔다 —
@@ -41,7 +41,7 @@ func main() {
 	log := engine.RotatingLog{Path: filepath.Join(appDir, "RcloneManager.log"), MaxLines: 1000}
 
 	if exe, err := os.Executable(); err == nil {
-		engine.CleanupPreviousExe(exe)
+		go engine.CleanupPreviousExe(exe)
 	}
 
 	fyneApp := app.NewWithID("com.murianwind.rclonemanager")

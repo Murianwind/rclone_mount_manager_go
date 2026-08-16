@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 // DownloadAppUpdate downloads a release asset zip (expected to contain
@@ -46,8 +47,28 @@ var launchFn = func(exePath string) error {
 // CleanupPreviousExe removes the .old backup ApplyUpdate leaves behind
 // after a successful update. Safe to call unconditionally on every
 // startup — a missing .old file is simply ignored, not an error.
+// CleanupPreviousExe removes the .old backup ApplyUpdate leaves behind
+// after a successful update. Safe to call unconditionally on every
+// startup — a missing .old file is simply ignored, not an error.
+//
+// Retries with a short backoff instead of trying once: the new process
+// launches almost immediately after ApplyUpdate renames the *running*
+// old process's own exe to .old, so the old process is often still in
+// the middle of shutting down (and therefore still holding that file
+// open) at the exact moment the new process's very first startup code
+// tries to delete it. A single attempt makes cleanup succeed or fail
+// depending on exactly how fast the old process happens to exit — that's
+// the "sometimes it's there, sometimes it isn't" behavior. Call this from
+// a goroutine, not inline in startup — see main.go.
 func CleanupPreviousExe(currentExe string) {
-	_ = os.Remove(currentExe + ".old")
+	old := currentExe + ".old"
+	for i := 0; i < 10; i++ {
+		err := os.Remove(old)
+		if err == nil || os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 }
 
 // ApplyUpdate swaps newExePath into place as currentExe and relaunches it.
